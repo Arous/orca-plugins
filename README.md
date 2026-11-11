@@ -4,9 +4,9 @@ Orca 하단에 **이번 달 사용액 / 현재 USD 잔액 · 사용 비중 게�
 
 ## 화면
 
-![Orca 하단 OpenGateway 사용액·잔액과 문자형 게이지. 실제 금액과 비율은 가림.](docs/screenshots/opengateway-status-bar.png)
+![Orca 하단 OpenGateway 사용액·잔액과 문자형 게이지. 실제 금액·비율·게이지 값은 가림.](docs/screenshots/opengateway-status-bar.png)
 
-v0.2.0이 실제 Orca에서 표시한 화면입니다. 2026-11-11 캡처에서 OpenGateway 항목만 잘라내고 실제 금액과 비율을 불투명하게 가렸습니다. 다른 서비스 사용량과 계정 정보는 포함하지 않았습니다.
+v0.2.0이 실제 Orca에서 표시한 화면입니다. 2026-11-11 캡처에서 OpenGateway 항목만 잘라내고 실제 금액·비율과 게이지 값을 불투명하게 가렸습니다. 다른 서비스 사용량과 계정 정보는 포함하지 않았습니다.
 
 표시 형식은 다음과 같습니다. 아래 숫자는 설명용 예시이며 스크린샷의 실제 값이 아닙니다.
 
@@ -17,7 +17,7 @@ OG 이번 달 $40.00 / $60.00 [■■□□□] 40.00%
 ## 요구 사항과 연결
 
 - macOS, `/Applications/Orca.app` 설치본. 현재 CLI 경로는 `/Applications/Orca.app/Contents/Resources/bin/orca`입니다. 앱 설치 위치를 옮기면 `src/browser.ts`의 경로를 수정하고 다시 설치해야 합니다.
-- Orca 1.4.248 이상, 플러그인 기능 활성화. 개발 및 검증 기준 버전은 1.4.255입니다.
+- manifest의 최소 Orca 버전 선언은 1.4.248입니다. 플러그인 기능을 활성화해야 합니다. 실제 개발·검증은 1.4.255에서 수행했으며, 1.4.248에서의 실행은 확인하지 않았습니다.
 - **Orca 안의 브라우저**에서 https://opengateway.ai/analysis 에 로그인하고 팀을 선택해야 합니다. 로그인 직후 `/dashboard`에 머물러 있어도 조회합니다. Safari, Chrome, Aside의 로그인은 가져오지 않습니다.
 - 현재 OpenGateway의 Clerk 세션을 사용합니다. 다른 인증 구현이나 향후 콘솔 변경에 대한 호환성은 보장하지 않습니다.
 
