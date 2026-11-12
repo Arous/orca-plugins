@@ -1,0 +1,41 @@
+{
+  "manifestVersion": 2,
+  "id": "opengateway-usage",
+  "name": "OpenGateway Usage",
+  "version": "0.2.0",
+  "description": "OpenGateway 연결을 자동 복구하고 이번 달 사용액 / 잔액과 사용 비중을 표시합니다.",
+  "engines": {
+    "orca": ">=1.4.248"
+  },
+  "execution": "trusted-worker",
+  "pluginApi": 1,
+  "main": "src/worker.ts",
+  "contributes": {
+    "panels": [
+      {
+        "id": "opengateway-usage",
+        "title": "OpenGateway Usage",
+        "icon": "gauge",
+        "entry": "src/panel.tsx",
+        "ui": "components"
+      }
+    ],
+    "commands": [
+      { "id": "refresh", "title": "OpenGateway 사용량 새로고침", "when": "global" }
+    ],
+    "statusBarItems": [
+      {
+        "id": "usage",
+        "text": "OG 연결 중",
+        "icon": "gauge",
+        "tooltip": "OpenGateway · 이번 달 사용액 / 현재 잔액 · 사용 비중",
+        "command": "refresh"
+      }
+    ]
+  },
+  "capabilities": [
+    {
+      "kind": "storage:own"
+    }
+  ]
+}
