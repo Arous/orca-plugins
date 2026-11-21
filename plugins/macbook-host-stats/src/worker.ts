@@ -122,7 +122,8 @@ export function createRuntime(orca: OrcaWorkerApi, deps: RuntimeDeps = {}): Host
 
   function settingsFailure(keepSample: boolean): HostState {
     settingsReady = false
-    const base = keepSample && state.sample ? state : initialState(DEFAULT_HOST, instanceId)
+    const host = state.host || DEFAULT_HOST
+    const base = keepSample && state.sample ? state : initialState(host, instanceId)
     state = {
       ...base,
       revision: ++revision,
@@ -157,10 +158,16 @@ export function createRuntime(orca: OrcaWorkerApi, deps: RuntimeDeps = {}): Host
         const request = ++settingsRequest
         try {
           const next = await readSettings(orca)
-          if (stopped || request !== settingsRequest) return state
+          if (stopped || request !== settingsRequest) {
+            if (!stopped) schedule()
+            return state
+          }
           adoptSettings(next)
         } catch {
-          if (stopped || request !== settingsRequest) return state
+          if (stopped || request !== settingsRequest) {
+            if (!stopped) schedule()
+            return state
+          }
           settingsFailure(Boolean(state.sample))
           publish()
           schedule()
@@ -256,7 +263,10 @@ export function createRuntime(orca: OrcaWorkerApi, deps: RuntimeDeps = {}): Host
       clearTimeout(timer)
       schedule()
     }
-    if (!inFlight && state.status !== 'ready') void refresh()
+    if (state.status !== 'ready') {
+      if (inFlight) schedule()
+      else void refresh()
+    }
   }
 
   async function start(): Promise<void> {
@@ -273,10 +283,16 @@ export function createRuntime(orca: OrcaWorkerApi, deps: RuntimeDeps = {}): Host
     const request = ++settingsRequest
     try {
       const next = await readSettings(orca)
-      if (stopped || request !== settingsRequest) return
+      if (stopped || request !== settingsRequest) {
+        if (!stopped) schedule()
+        return
+      }
       adoptSettings(next)
     } catch {
-      if (stopped || request !== settingsRequest) return
+      if (stopped || request !== settingsRequest) {
+        if (!stopped) schedule()
+        return
+      }
       settingsFailure(false)
       publish()
       schedule()

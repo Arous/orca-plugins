@@ -106,7 +106,7 @@ battery 100% AC · top processes 5
 
 ## 알려진 제한
 
-- 원격 호스트가 절전·종료 상태이거나 Tailscale 연결이 끊기면 조회할 수 없습니다.
+- 원격 호스트가 절전·종료 상태이거나 Tailscale 연결이 끊기면 조회할 수 없습니다. 호스트 별칭을 바꾸면 이전 호스트의 샘플은 새 호스트 값으로 표시하지 않고 지웁니다.
 - `source ~/.ssh/config`의 `Match`, `ProxyJump`, `ControlMaster` 등은 시스템 `ssh` 동작을 그대로 따릅니다. Orca 자체 SSH 연결과 세션을 공유하지는 않습니다.
 - CPU 온도·팬·GPU·전력은 root 명령이 필요해 이 플러그인 범위가 아닙니다.
 - macOS 버전이나 명령 출력 형식이 바뀌면 파서를 갱신해야 합니다.
