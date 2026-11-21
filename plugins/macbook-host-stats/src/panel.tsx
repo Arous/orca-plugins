@@ -33,6 +33,7 @@ import type { HostState } from './protocol'
 const state = atom<HostState | null>(null)
 const failure = atom<string | null>(null)
 const busy = atom(false)
+let eventRevision = 0
 
 type MetricItem = { label: string; value: string | number | boolean | null; code?: boolean }
 
@@ -47,33 +48,44 @@ function MetricCard(props: { title: string; percent: number; items: MetricItem[]
   )
 }
 
-/** A slow request must not overwrite a newer worker state. */
-function apply(next: HostState): void {
+/** A slow response must not overwrite a newer worker event. Events may replace a worker. */
+function apply(next: HostState, requestInstance?: string): void {
   const current = read(state)
-  if (!current || next.instanceId !== current.instanceId || next.revision >= current.revision) {
-    set(state, next)
-    set(failure, null)
-  }
+  if (current && requestInstance !== undefined &&
+      next.instanceId !== current.instanceId && current.instanceId !== requestInstance) return
+  if (current && next.instanceId === current.instanceId && next.revision < current.revision) return
+  set(state, next)
+  set(failure, null)
 }
 
 export function setup(ctx: PanelContext): void {
-  ctx.subscriptions.push(plugin.on('stats.changed', apply))
+  ctx.subscriptions.push(plugin.on('stats.changed', (next) => {
+    eventRevision += 1
+    apply(next)
+  }))
+  const requestRevision = eventRevision
+  const requestInstance = read(state)?.instanceId
   void plugin.request('stats.get').then((next) => {
-    if (!ctx.signal.aborted) apply(next)
+    if (!ctx.signal.aborted && eventRevision === requestRevision) apply(next, requestInstance)
   }).catch(() => {
-    if (!ctx.signal.aborted) set(failure, '플러그인 워커에 연결하지 못했습니다.')
+    if (!ctx.signal.aborted && eventRevision === requestRevision && !read(state)?.sample) {
+      set(failure, '플러그인 워커에 연결하지 못했습니다.')
+    }
   })
 }
 
 async function refresh(): Promise<void> {
   if (read(busy)) return
-  const beforeRevision = read(state)?.revision ?? 0
+  const before = read(state)
+  const beforeRevision = before?.revision ?? 0
+  const requestInstance = before?.instanceId
   set(busy, true)
   try {
-    apply(await plugin.request('stats.refresh'))
+    apply(await plugin.request('stats.refresh'), requestInstance)
   } catch {
     const current = read(state)
-    if (!current?.sample || current.revision <= beforeRevision) {
+    const newerWorker = current?.instanceId !== undefined && current.instanceId !== requestInstance
+    if (!current?.sample || (!newerWorker && current.revision <= beforeRevision)) {
       set(failure, '자원을 새로고침하지 못했습니다.')
     }
   } finally {

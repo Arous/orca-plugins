@@ -109,17 +109,11 @@ function parseBattery(raw: string | undefined): BatterySample | null {
   }
 }
 
-const HELPER_PROCESSES = new Set(['head', 'ps', 'tr'])
+const HELPER_PROCESSES = new Set(['head', 'ps', 'sed', 'tr'])
 
 function processName(command: string): string {
-  const trimmed = command.trim()
-  const quoted = /^(?:"([^"]+)"|'([^']+)'|(\S+))/.exec(trimmed)
-  let candidate = quoted?.[1] ?? quoted?.[2] ?? quoted?.[3] ?? trimmed
-  const app = trimmed.indexOf('.app/Contents/MacOS/')
-  if (app >= 0) {
-    candidate = trimmed.slice(app + '.app/Contents/MacOS/'.length).split(/\s--/)[0].trim()
-  }
-  const base = candidate.slice(candidate.lastIndexOf('/') + 1) || candidate
+  const token = command.trim().split(/\s+/, 1)[0] ?? ''
+  const base = token.slice(token.lastIndexOf('/') + 1) || token
   const name = base.startsWith('com.') && base.includes('.') ? base.slice(base.lastIndexOf('.') + 1) : base
   return name.length > 32 ? `${name.slice(0, 31)}…` : name
 }

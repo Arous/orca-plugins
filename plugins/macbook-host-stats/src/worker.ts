@@ -82,7 +82,7 @@ function errorText(error: unknown): string {
  * collector and clock. Every refresh either replaces the sample or keeps the last one as stale.
  */
 export function createRuntime(orca: OrcaWorkerApi, deps: RuntimeDeps = {}): HostRuntime {
-  const collect = deps.collect ?? ((host: string, signal: AbortSignal) => collectRemote(host, signal))
+  const collect = deps.collect ?? collectRemote
   const now = deps.now ?? Date.now
   const instanceId = randomUUID()
   const disposables: Disposable[] = []

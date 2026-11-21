@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process'
 import { parseRemoteMetrics, type RemoteMetrics } from './collector'
-import { CollectorError } from './errors'
+import { CollectorError, type CollectorErrorCode } from './errors'
 
 const SSH_PATH = '/usr/bin/ssh'
 const TIMEOUT_MS = 20_000
@@ -41,7 +41,7 @@ printf 'boot=%s\n' "$BOOT"
 NOW=$(date +%s)
 if [ -n "$BOOT" ] && [ "$BOOT" -gt 0 ] 2>/dev/null; then printf 'uptime=%s\n' "$((NOW-BOOT))"; else printf 'uptime=\n'; fi
 printf 'battery=%s\n' "$(pmset -g batt 2>/dev/null | tail -2 | tr '\n' '|')"
-printf 'procs=%s\n' "$(ps -Ao pid=,%cpu=,%mem=,command= -ww -r 2>/dev/null | head -20 | tr '\n' '|')"
+printf 'procs=%s\n' "$(ps -Ao pid=,%cpu=,%mem=,command= -ww -r 2>/dev/null | head -20 | sed -E 's/^ *([0-9]+ +[0-9.]+ +[0-9.]+ +[^ ]+).*/\1/' | tr '\n' '|')"
 `
 
 export function isValidHost(host: string): boolean {
@@ -79,10 +79,12 @@ function runSsh(host: string, signal: AbortSignal): Promise<string> {
     callback()
   }
 
-  const abort = (): void => {
+  const terminate = (code: CollectorErrorCode, message: string): void => {
     child.kill('SIGKILL')
-    finish(() => reject(new CollectorError('cancelled', 'cancelled')))
+    finish(() => reject(new CollectorError(code, message)))
   }
+
+  const abort = (): void => terminate('cancelled', 'cancelled')
 
   if (signal.aborted) {
     abort()
@@ -90,10 +92,7 @@ function runSsh(host: string, signal: AbortSignal): Promise<string> {
   }
   signal.addEventListener('abort', abort, { once: true })
 
-  timer = setTimeout(() => {
-    child.kill('SIGKILL')
-    finish(() => reject(new CollectorError('timeout', 'timeout')))
-  }, TIMEOUT_MS)
+  timer = setTimeout(() => terminate('timeout', 'timeout'), TIMEOUT_MS)
 
   child.on('error', () => {
     finish(() => reject(new CollectorError('ssh-failed', 'ssh failed')))
@@ -103,8 +102,7 @@ function runSsh(host: string, signal: AbortSignal): Promise<string> {
   child.stdout.on('data', (chunk: string) => {
     stdoutBytes += Buffer.byteLength(chunk)
     if (stdoutBytes > MAX_OUTPUT_BYTES) {
-      child.kill('SIGKILL')
-      finish(() => reject(new CollectorError('ssh-failed', 'ssh output too large')))
+      terminate('ssh-failed', 'ssh output too large')
       return
     }
     stdout += chunk
