@@ -49,10 +49,10 @@ function MetricCard(props: { title: string; percent: number; items: MetricItem[]
 }
 
 /** A slow response must not overwrite a newer worker event. Events may replace a worker. */
-function apply(next: HostState, requestInstance?: string): void {
+function apply(next: HostState, requestInstance?: string, requestEventRevision?: number): void {
   const current = read(state)
-  if (current && requestInstance !== undefined &&
-      next.instanceId !== current.instanceId && current.instanceId !== requestInstance) return
+  if (current && next.instanceId !== current.instanceId && requestEventRevision !== undefined &&
+      eventRevision !== requestEventRevision) return
   if (current && next.instanceId === current.instanceId && next.revision < current.revision) return
   set(state, next)
   set(failure, null)
@@ -79,15 +79,17 @@ async function refresh(): Promise<void> {
   const before = read(state)
   const beforeRevision = before?.revision ?? 0
   const requestInstance = before?.instanceId
+  const requestEventRevision = eventRevision
   set(busy, true)
   try {
-    apply(await plugin.request('stats.refresh'), requestInstance)
+    apply(await plugin.request('stats.refresh'), requestInstance, requestEventRevision)
   } catch {
     const current = read(state)
-    const newerWorker = current?.instanceId !== undefined && current.instanceId !== requestInstance
-    if (!current?.sample || (!newerWorker && current.revision <= beforeRevision)) {
-      set(failure, '자원을 새로고침하지 못했습니다.')
-    }
+    const newerCompleted = current?.sample !== null && current?.sample !== undefined &&
+      current?.refreshing === false && (
+        current.instanceId !== requestInstance || current.revision > beforeRevision
+      )
+    if (!newerCompleted) set(failure, '자원을 새로고침하지 못했습니다.')
   } finally {
     set(busy, false)
   }

@@ -19,16 +19,18 @@ printf 'memsize=%s\n' "$(sysctl -n hw.memsize 2>/dev/null)"
 printf 'load=%s\n' "$(sysctl -n vm.loadavg 2>/dev/null | tr -d '{}')"
 printf 'cpu=%s\n' "$(iostat -c 2 -w 1 2>/dev/null | tr '\r' '\n' | tail -1 | awk '{print $(NF-5), $(NF-4), $(NF-3)}')"
 printf 'vm=%s\n' "$(vm_stat 2>/dev/null | awk '
-  /page size of/ { gsub(/[^0-9]/,"",$8); ps=$8 }
-  /Pages free:/ { gsub(/\./,"",$3); f=$3 }
-  /Pages active:/ { gsub(/\./,"",$3); a=$3 }
-  /Pages inactive:/ { gsub(/\./,"",$3); i=$3 }
-  /Pages speculative:/ { gsub(/\./,"",$3); s=$3 }
-  /Pages wired down:/ { gsub(/\./,"",$4); w=$4 }
-  /Pages occupied by compressor:/ { gsub(/\./,"",$5); c=$5 }
+  /page size of/ { gsub(/[^0-9]/,"",$8); pageSize=$8 }
+  /Pages free:/ { gsub(/\./,"",$3); freePages=$3 }
+  /Pages active:/ { gsub(/\./,"",$3); activePages=$3 }
+  /Pages inactive:/ { gsub(/\./,"",$3); inactivePages=$3 }
+  /Pages speculative:/ { gsub(/\./,"",$3); speculativePages=$3 }
+  /Pages wired down:/ { gsub(/\./,"",$4); wiredPages=$4 }
+  /Pages occupied by compressor:/ { gsub(/\./,"",$5); compressedPages=$5 }
   END {
-    if (ps && f != "" && a != "" && i != "" && s != "" && w != "" && c != "")
-      printf "%d %d %d %d %d %d %d", ps, f, a, i, s, w, c
+    if (pageSize && freePages != "" && activePages != "" && inactivePages != "" &&
+        speculativePages != "" && wiredPages != "" && compressedPages != "")
+      printf "%d %d %d %d %d %d %d", pageSize, freePages, activePages, inactivePages,
+        speculativePages, wiredPages, compressedPages
   }
 ')"
 printf 'swap=%s\n' "$(sysctl -n vm.swapusage 2>/dev/null)"

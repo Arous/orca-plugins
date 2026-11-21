@@ -59,9 +59,8 @@ function requiredText(fields: Map<string, string>, key: string): string {
 }
 
 function requiredNumber(fields: Map<string, string>, key: string): number {
-  const value = fields.get(key)?.trim()
-  const parsed = value === undefined || value === '' ? Number.NaN : Number(value)
-  if (!Number.isFinite(parsed)) throw new CollectorError('parse-failed', `invalid ${key}`)
+  const parsed = optionalNumber(fields, key)
+  if (parsed === null) throw new CollectorError('parse-failed', `invalid ${key}`)
   return parsed
 }
 

@@ -91,6 +91,28 @@ test('keeps a successful sample when refresh RPC fails', async () => {
   }
 })
 
+test('marks a failed refresh stale even after a progress event', async () => {
+  const host = mockHost({
+    requests: {
+      'stats.get': readyState,
+      'stats.refresh': () => new Promise<HostState>((_resolve, reject) => {
+        setTimeout(() => reject(hostError('action_failed', 'refresh failed')), 0)
+      })
+    }
+  })
+  const view = await mount(panel, { host })
+  try {
+    const pressed = view.press({ text: '새로고침' })
+    await view.post('stats.changed', { ...readyState, revision: 2, refreshing: true })
+    await pressed
+    const tree = JSON.stringify(view.tree())
+    assert.ok(tree.includes('자원을 새로고침하지 못했습니다.'), tree)
+    assert.ok(tree.includes('지연'), tree)
+  } finally {
+    await view.unmount()
+  }
+})
+
 test('does not mark a newer successful event as failed', async () => {
   const host = mockHost({
     requests: {
