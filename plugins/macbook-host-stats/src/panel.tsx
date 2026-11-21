@@ -87,10 +87,9 @@ async function refresh(): Promise<void> {
     const superseded = current?.instanceId !== undefined && current.instanceId !== requestInstance &&
       (requestInstance !== undefined || eventRevision !== requestEventRevision)
     if (superseded) return
-    const newerCompleted = current?.sample !== null && current?.sample !== undefined &&
-      current?.refreshing === false && (
-        current.instanceId !== requestInstance || current.revision > beforeRevision
-      )
+    const newerCompleted = current !== null && current.refreshing === false && (
+      current.instanceId !== requestInstance || current.revision > beforeRevision
+    )
     if (!newerCompleted) set(failure, '자원을 새로고침하지 못했습니다.')
   } finally {
     set(busy, false)

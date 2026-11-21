@@ -208,6 +208,26 @@ test('rejects an unsafe host alias without starting SSH', async () => {
   }
 })
 
+test('starts polling when settings load before startup', async () => {
+  const fake = fakeOrca()
+  let calls = 0
+  const runtime = createRuntime(fake.orca, {
+    collect: async () => {
+      calls += 1
+      return remoteMetrics
+    },
+    now: () => 1_000_000
+  })
+  try {
+    await runtime.reloadSettings()
+    const state = await runtime.refresh()
+    assert.equal(state.status, 'ready')
+    assert.equal(calls, 1)
+  } finally {
+    runtime.stop()
+  }
+})
+
 test('single-flights settings recovery and collection', async () => {
   const fake = fakeOrca({}, true)
   let calls = 0

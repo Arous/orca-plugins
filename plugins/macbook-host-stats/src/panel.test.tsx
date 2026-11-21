@@ -119,6 +119,28 @@ test('does not apply a failure from a superseded worker', async () => {
   }
 })
 
+test('keeps a newer error event instead of a generic refresh failure', async () => {
+  const host = mockHost({
+    requests: {
+      'stats.get': readyState,
+      'stats.refresh': () => new Promise<HostState>((_resolve, reject) => {
+        setTimeout(() => reject(hostError('action_failed', 'refresh failed')), 0)
+      })
+    }
+  })
+  const view = await mount(panel, { host })
+  try {
+    const pressed = view.press({ text: '새로고침' })
+    await view.post('stats.changed', { ...errorState, revision: 2, refreshing: false })
+    await pressed
+    const tree = JSON.stringify(view.tree())
+    assert.ok(tree.includes('SSH 연결에 실패했습니다.'), tree)
+    assert.ok(!tree.includes('자원을 새로고침하지 못했습니다.'), tree)
+  } finally {
+    await view.unmount()
+  }
+})
+
 test('marks a failed refresh stale even after a progress event', async () => {
   const host = mockHost({
     requests: {

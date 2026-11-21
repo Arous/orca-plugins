@@ -256,7 +256,7 @@ export function createRuntime(orca: OrcaWorkerApi, deps: RuntimeDeps = {}): Host
       clearTimeout(timer)
       schedule()
     }
-    if ((state.status === 'error' || state.status === 'stale') && !inFlight) void refresh()
+    if (!inFlight && state.status !== 'ready') void refresh()
   }
 
   async function start(): Promise<void> {
