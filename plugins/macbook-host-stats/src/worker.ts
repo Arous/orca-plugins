@@ -185,7 +185,7 @@ export function createRuntime(orca: OrcaWorkerApi, deps: RuntimeDeps = {}): Host
       try {
         if (!isValidHost(host)) throw new CollectorError('host-invalid', 'invalid host')
         const remote = await collect(host, current.signal)
-        if (stopped || settings.host !== host) return state
+        if (stopped || !settingsReady || settings.host !== host) return state
         const at = now()
         const sample = buildSample(remote, previous, host, at)
         previous = {
@@ -208,7 +208,7 @@ export function createRuntime(orca: OrcaWorkerApi, deps: RuntimeDeps = {}): Host
         }
         failures = 0
       } catch (error) {
-        if (stopped || settings.host !== host) return state
+        if (stopped || !settingsReady || settings.host !== host) return state
         failures += 1
         state = {
           ...state,

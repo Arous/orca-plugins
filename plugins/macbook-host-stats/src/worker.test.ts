@@ -321,6 +321,36 @@ test('keeps the last sample across repeated settings failures', async () => {
   }
 })
 
+test('does not let an in-flight collection erase a settings failure', async () => {
+  const fake = fakeOrca()
+  let calls = 0
+  let release: ((value: typeof remoteMetrics) => void) | undefined
+  const runtime = createRuntime(fake.orca, {
+    collect: async () => {
+      calls += 1
+      if (calls === 1) return remoteMetrics
+      return new Promise((resolve) => {
+        release = resolve
+      })
+    },
+    now: () => 1_000_000
+  })
+  await runtime.start()
+  try {
+    await runtime.refresh()
+    const pending = runtime.refresh()
+    fake.setSettingsFailure(true)
+    await runtime.reloadSettings()
+    release?.(remoteMetrics)
+    await pending
+    const state = runtime.state()
+    assert.equal(state.status, 'stale')
+    assert.equal(state.error, '플러그인 설정을 읽지 못했습니다.')
+  } finally {
+    runtime.stop()
+  }
+})
+
 test('switches hosts when the setting changes', async () => {
   const fake = fakeOrca()
   const hosts: string[] = []
