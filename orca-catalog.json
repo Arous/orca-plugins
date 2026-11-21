@@ -60,9 +60,9 @@
       ],
       "releases": [
         {
-          "version": "0.1.1",
-          "commit": "180acc8800d77ee7c3d0c201178d4d25714a5e51",
-          "contentHash": "d0053d69dbc2e19d5440225e63d92b2b556a5837264775933aa14ec8574effe3",
+          "version": "0.1.2",
+          "commit": "a93096789c431f4eed75a9dce06c37c222069e12",
+          "contentHash": "da96930c5bde2ed27fd9d8282ceff108928658d6ae740762c4f4059ad8f3ba7c",
           "execution": "trusted-worker",
           "minimumOrca": "1.4.248",
           "name": "MacBook Host Stats",
