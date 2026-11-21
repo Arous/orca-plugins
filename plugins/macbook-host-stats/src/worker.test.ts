@@ -208,6 +208,54 @@ test('rejects an unsafe host alias without starting SSH', async () => {
   }
 })
 
+test('single-flights settings recovery and collection', async () => {
+  const fake = fakeOrca({}, true)
+  let calls = 0
+  const runtime = createRuntime(fake.orca, {
+    collect: async () => {
+      calls += 1
+      return remoteMetrics
+    },
+    now: () => 1_000_000
+  })
+  await runtime.start()
+  try {
+    fake.setSettingsFailure(false)
+    const [first, second] = await Promise.all([runtime.refresh(), runtime.refresh()])
+    assert.equal(first, second)
+    assert.equal(calls, 1)
+  } finally {
+    runtime.stop()
+  }
+})
+
+test('recovers the configured host after a failed settings reload', async () => {
+  const fake = fakeOrca()
+  const hosts: string[] = []
+  const runtime = createRuntime(fake.orca, {
+    collect: async (host) => {
+      hosts.push(host)
+      return remoteMetrics
+    },
+    now: () => 1_000_000
+  })
+  await runtime.start()
+  try {
+    await runtime.refresh()
+    fake.settings.host = 'other-mac'
+    fake.setSettingsFailure(true)
+    await runtime.reloadSettings()
+    assert.equal(runtime.state().status, 'stale')
+
+    fake.setSettingsFailure(false)
+    const state = await runtime.refresh()
+    assert.equal(state.host, 'other-mac')
+    assert.equal(hosts.at(-1), 'other-mac')
+  } finally {
+    runtime.stop()
+  }
+})
+
 test('switches hosts when the setting changes', async () => {
   const fake = fakeOrca()
   const hosts: string[] = []

@@ -6,7 +6,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "orca plugin test . --json",
-    "check": "orca plugin check . --json"
+    "check": "sandbox-exec -p '(version 1) (allow default) (deny network*)' orca plugin check . --json"
   },
   "devDependencies": {
     "@types/node": "24.19.2",

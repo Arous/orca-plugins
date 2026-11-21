@@ -92,7 +92,6 @@ export function createRuntime(orca: OrcaWorkerApi, deps: RuntimeDeps = {}): Host
   let timer: NodeJS.Timeout | undefined
   let inFlight: Promise<HostState> | null = null
   let controller: AbortController | null = null
-  let runId = 0
   let stopped = false
   let settingsReady = false
   let failures = 0
@@ -121,6 +120,7 @@ export function createRuntime(orca: OrcaWorkerApi, deps: RuntimeDeps = {}): Host
   }
 
   function settingsFailure(keepSample: boolean): HostState {
+    settingsReady = false
     const base = keepSample && state.sample ? state : initialState(DEFAULT_HOST, instanceId)
     state = {
       ...base,
@@ -132,33 +132,33 @@ export function createRuntime(orca: OrcaWorkerApi, deps: RuntimeDeps = {}): Host
     return state
   }
 
-  async function refresh(): Promise<HostState> {
-    if (stopped) return state
+  function refresh(): Promise<HostState> {
+    if (stopped) return Promise.resolve(state)
     if (inFlight) return inFlight
-    if (!settingsReady) {
-      try {
-        settings = await readSettings(orca)
-      } catch {
-        if (stopped) return state
-        settingsFailure(false)
-        publish()
-        return state
-      }
-      if (stopped) return state
-      settingsReady = true
-    }
-
-    clearTimeout(timer)
-    const id = ++runId
-    const host = settings.host
-    const attemptAt = now()
-    state = { ...state, host, revision: ++revision, refreshing: true, lastAttemptAt: attemptAt }
-    publish()
-    const current = new AbortController()
-    controller = current
 
     const run = (async (): Promise<HostState> => {
       await Promise.resolve()
+      if (!settingsReady) {
+        try {
+          settings = await readSettings(orca)
+        } catch {
+          if (stopped) return state
+          settingsFailure(false)
+          publish()
+          schedule()
+          return state
+        }
+        if (stopped) return state
+        settingsReady = true
+      }
+
+      clearTimeout(timer)
+      const host = settings.host
+      const attemptAt = now()
+      state = { ...state, host, revision: ++revision, refreshing: true, lastAttemptAt: attemptAt }
+      publish()
+      const current = new AbortController()
+      controller = current
       try {
         if (!isValidHost(host)) throw new CollectorError('host-invalid', 'invalid host')
         const remote = await collect(host, current.signal)
@@ -195,7 +195,6 @@ export function createRuntime(orca: OrcaWorkerApi, deps: RuntimeDeps = {}): Host
           refreshing: false
         }
       } finally {
-        if (runId === id) inFlight = null
         if (controller === current) controller = null
         if (!stopped && settings.host === host) {
           publish()
@@ -206,6 +205,9 @@ export function createRuntime(orca: OrcaWorkerApi, deps: RuntimeDeps = {}): Host
     })()
 
     inFlight = run
+    void run.finally(() => {
+      if (inFlight === run) inFlight = null
+    })
     return run
   }
 
@@ -218,6 +220,7 @@ export function createRuntime(orca: OrcaWorkerApi, deps: RuntimeDeps = {}): Host
       if (stopped) return
       settingsFailure(Boolean(state.sample))
       publish()
+      schedule()
       return
     }
     if (stopped) return
@@ -242,6 +245,7 @@ export function createRuntime(orca: OrcaWorkerApi, deps: RuntimeDeps = {}): Host
       schedule()
     }
     state = { ...state, host: settings.host }
+    if ((state.status === 'error' || state.status === 'stale') && !inFlight) void refresh()
   }
 
   async function start(): Promise<void> {
@@ -262,6 +266,7 @@ export function createRuntime(orca: OrcaWorkerApi, deps: RuntimeDeps = {}): Host
       if (stopped) return
       settingsFailure(false)
       publish()
+      schedule()
       return
     }
     if (stopped) return

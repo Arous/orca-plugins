@@ -95,7 +95,7 @@ orca plugin inspect . --json
 - 워커의 ready/stale/error 상태, 상태 표시줄, 호스트 변경
 - 패널의 정상/지연/오류 렌더와 새로고침
 
-`orca plugin check`는 패널만 검사하며, 실제 SSH 연결과 원격 macOS 출력의 전체 경로를 대신하지 않습니다. 실제 `macbook2015` 검증에서는 다음 값을 확인했습니다.
+`npm run check`는 `sandbox-exec`로 네트워크를 차단한 상태에서 manifest와 패널을 검사합니다. 워커가 시작되더라도 SSH 연결은 차단되며, 실제 원격 macOS 출력의 전체 경로를 대신하지 않습니다. 실제 `macbook2015` 검증에서는 다음 값을 확인했습니다.
 
 ```text
 MacBookPro11,4 · Intel i7-4770HQ · 8 logical cores · 16 GB
