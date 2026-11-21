@@ -19,6 +19,10 @@ test('draws the CPU, memory, disk and network cards', async () => {
     assert.ok(tree.includes('네트워크'))
     assert.ok(tree.includes('상위 CPU 프로세스'))
 
+    const grids = view.findAll({ type: 'Grid' })
+    assert.ok(grids.length > 0)
+    assert.ok(grids.every((grid) => grid.props.columns === 1), 'metric cards must use one column in the sidebar')
+
     await view.press({ text: '새로고침' })
     assert.deepEqual(view.errors, [])
     assert.deepEqual(view.refusals, [])

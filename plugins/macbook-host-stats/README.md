@@ -24,13 +24,16 @@ SSH로 `macbook2015`의 CPU, 메모리, 디스크, 네트워크 상태를 읽어
 
 ## 설치
 
-이 저장소의 하위 폴더가 하나의 설치 가능한 플러그인입니다.
+이 저장소의 `orca-catalog.json`에 등록된 하위 폴더 플러그인입니다.
 
-GitHub의 폴더를 지정해 설치:
+카탈로그를 추가한 뒤 설치:
 
 ```sh
-orca plugin install https://github.com/Arous/orca-plugins/tree/master/plugins/macbook-host-stats
+orca plugin catalog add Arous/orca-plugins --ref master
+orca plugin install arous.macbook-host-stats
 ```
+
+`orca plugin catalog add`가 승인 지문을 요구하면 저장소를 확인한 뒤 승인하세요.
 
 로컬 폴더에서 설치:
 
@@ -115,3 +118,10 @@ battery 100% AC · top processes 5
 ## 라이선스
 
 저장소의 기존 라이선스를 따릅니다.
+
+## 변경 기록
+
+### 0.1.1
+
+- 좁은 사이드바에서 CPU·메모리·디스크 카드를 한 열로 표시해 값이 세로로 깨지지 않게 수정.
+- `orca-catalog.json`으로 GitHub 카탈로그 설치를 지원.

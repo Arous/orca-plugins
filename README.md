@@ -6,11 +6,19 @@ Orca 하단에 **이번 달 사용액 / 현재 USD 잔액 · 사용 비중 게�
 
 ### MacBook Host Stats
 
-`plugins/macbook-host-stats`는 SSH로 MacBook의 CPU, 메모리, 디스크, 네트워크 상태를 읽어 패널과 하단 상태 표시줄에 보여주는 별도 플러그인입니다. Orca 기본 기능에는 원격 자원 메트릭이 없으므로 `trusted-worker`가 시스템 `ssh`를 실행합니다. 설치:
+`plugins/macbook-host-stats`는 SSH로 MacBook의 CPU, 메모리, 디스크, 네트워크 상태를 읽어 패널과 하단 상태 표시줄에 보여주는 별도 플러그인입니다. Orca 기본 기능에는 원격 자원 메트릭이 없으므로 `trusted-worker`가 시스템 `ssh`를 실행합니다.
+
+### 카탈로그로 설치
+
+이 저장소의 `orca-catalog.json`은 루트 OpenGateway Usage와 하위 MacBook Host Stats를 함께 제공합니다.
 
 ```sh
-orca plugin install https://github.com/Arous/orca-plugins/tree/master/plugins/macbook-host-stats
+orca plugin catalog add Arous/orca-plugins --ref master
+orca plugin install arous.opengateway-usage
+orca plugin install arous.macbook-host-stats
 ```
+
+`orca plugin catalog add`는 카탈로그 저장소를 신뢰하는 승인을 요구할 수 있습니다. 반환된 지문을 확인한 뒤 승인하세요. 로컬 폴더 설치는 `plugins/macbook-host-stats/README.md`를 참고하세요.
 
 자세한 설정, 권한 경계, 지원하지 않는 root 전용 메트릭은 [plugins/macbook-host-stats/README.md](plugins/macbook-host-stats/README.md)를 참고하세요.
 
