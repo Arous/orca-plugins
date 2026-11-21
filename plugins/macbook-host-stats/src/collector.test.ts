@@ -11,7 +11,7 @@ vm=4096 89132 1572800 1572800 12530 642900 335968
 swap=total = 1024.00M  used = 113.00M  free = 911.00M  (encrypted)
 disk=244912536 88944820 124660760 42%
 iface=en0
-net=38160985 44218055775 15295486 5962071256
+netraw=en0 1500 <Link#5> a0:99:9b:0e:e3:eb 38160985 0 44218055775 15295486 0 5962071256 0
 boot=1793814305
 uptime=1461600
 battery=Now drawing from 'AC Power'|-InternalBattery-0 (id=6684771)\t100%; charged; 0:00 remaining present: true
@@ -108,8 +108,19 @@ test('rejects a remote reading without swap output', () => {
   )
 })
 
+test('parses address-less tunnel link rows without shifting counters', () => {
+  const remote = parseRemoteMetrics(FIXTURE.replace(
+    /^netraw=.*$/m,
+    'netraw=utun0 1500 <Link#12> 0 0 0 1 0 80 0'
+  ))
+  assert.equal(remote.network.rxBytes, 0)
+  assert.equal(remote.network.txBytes, 80)
+  assert.equal(remote.network.rxPackets, 0)
+  assert.equal(remote.network.txPackets, 1)
+})
+
 test('marks missing network counters as unavailable, not zero', () => {
-  const remote = parseRemoteMetrics(FIXTURE.replace(/^net=.*$/m, 'net='))
+  const remote = parseRemoteMetrics(FIXTURE.replace(/^netraw=.*$/m, 'netraw='))
   assert.equal(remote.network.rxBytes, null)
   const sample = buildSample(remote, null, 'macbook2015', 1_000_000)
   assert.equal(sample.network.rxBytes, null)

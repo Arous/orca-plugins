@@ -37,7 +37,8 @@ printf 'swap=%s\n' "$(sysctl -n vm.swapusage 2>/dev/null)"
 printf 'disk=%s\n' "$(df -kP /System/Volumes/Data 2>/dev/null | tail -1 | awk '{print $2, $3, $4, $5}')"
 IFACE=$(route -n get default 2>/dev/null | awk '/interface:/{print $2; exit}')
 printf 'iface=%s\n' "$IFACE"
-printf 'net=%s\n' "$(netstat -ibn 2>/dev/null | awk -v i="$IFACE" '$1==i && $3 ~ /^<Link/ {print $5, $7, $8, $10; exit}')"
+NETRAW=$(netstat -ibn 2>/dev/null | awk -v i="$IFACE" '$1==i && $3 ~ /^<Link/ {print; exit}')
+printf 'netraw=%s\n' "$NETRAW"
 BOOT=$(sysctl -n kern.boottime 2>/dev/null | awk -F'[=,]' '{gsub(/ /,"",$2); print $2; exit}')
 printf 'boot=%s\n' "$BOOT"
 NOW=$(date +%s)

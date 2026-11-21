@@ -90,6 +90,7 @@ export function createRuntime(orca: OrcaWorkerApi, deps: RuntimeDeps = {}): Host
   let revision = 0
   let previous: NetCounters | null = null
   let timer: NodeJS.Timeout | undefined
+  let settingsRequest = 0
   let inFlight: Promise<HostState> | null = null
   let controller: AbortController | null = null
   let stopped = false
@@ -153,16 +154,18 @@ export function createRuntime(orca: OrcaWorkerApi, deps: RuntimeDeps = {}): Host
     const run = (async (): Promise<HostState> => {
       await Promise.resolve()
       if (!settingsReady) {
+        const request = ++settingsRequest
         try {
-          adoptSettings(await readSettings(orca))
+          const next = await readSettings(orca)
+          if (stopped || request !== settingsRequest) return state
+          adoptSettings(next)
         } catch {
-          if (stopped) return state
+          if (stopped || request !== settingsRequest) return state
           settingsFailure(Boolean(state.sample))
           publish()
           schedule()
           return state
         }
-        if (stopped) return state
       }
 
       clearTimeout(timer)
@@ -226,17 +229,18 @@ export function createRuntime(orca: OrcaWorkerApi, deps: RuntimeDeps = {}): Host
 
   async function reloadSettings(): Promise<void> {
     if (stopped) return
+    const request = ++settingsRequest
     let next: RuntimeSettings
     try {
       next = await readSettings(orca)
     } catch {
-      if (stopped) return
+      if (stopped || request !== settingsRequest) return
       settingsFailure(Boolean(state.sample))
       publish()
       schedule()
       return
     }
-    if (stopped) return
+    if (stopped || request !== settingsRequest) return
     const intervalChanged = next.pollSeconds !== settings.pollSeconds
     const hostChanged = adoptSettings(next)
     if (hostChanged) {
@@ -266,10 +270,13 @@ export function createRuntime(orca: OrcaWorkerApi, deps: RuntimeDeps = {}): Host
     disposables.push(orca.settings.onDidChange(() => {
       void reloadSettings().catch(() => orca.log('MacBook Host Stats: settings reload failed'))
     }))
+    const request = ++settingsRequest
     try {
-      adoptSettings(await readSettings(orca))
+      const next = await readSettings(orca)
+      if (stopped || request !== settingsRequest) return
+      adoptSettings(next)
     } catch {
-      if (stopped) return
+      if (stopped || request !== settingsRequest) return
       settingsFailure(false)
       publish()
       schedule()

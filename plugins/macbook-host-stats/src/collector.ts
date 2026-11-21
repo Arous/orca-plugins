@@ -174,6 +174,21 @@ function parseProcesses(raw: string | undefined, selfPid: number | null): Proces
  * Parse the fixed key=value output produced by REMOTE_SCRIPT. Kept separate from SSH so
  * malformed and partial remote output can be tested without a host.
  */
+export function parseNetstat(raw: string | undefined): Omit<RemoteMetrics['network'], 'interface'> {
+  const fields = raw?.trim().split(/\s+/) ?? []
+  const empty = { rxBytes: null, txBytes: null, rxPackets: null, txPackets: null }
+  if (fields.length < 8 || fields[2] === undefined || !fields[2].startsWith('<Link')) return empty
+  const rest = fields.slice(3)
+  const offset = /^\d+$/.test(rest[0] ?? '') ? 0 : 1
+  if (rest.length < offset + 6) return empty
+  const rxPackets = Number(rest[offset])
+  const rxBytes = Number(rest[offset + 2])
+  const txPackets = Number(rest[offset + 3])
+  const txBytes = Number(rest[offset + 5])
+  if (![rxPackets, rxBytes, txPackets, txBytes].every(Number.isFinite)) return empty
+  return { rxBytes, txBytes, rxPackets, txPackets }
+}
+
 export function parseRemoteMetrics(stdout: string): RemoteMetrics {
   const fields = new Map<string, string>()
   for (const line of stdout.split(/\r?\n/)) {
@@ -197,8 +212,7 @@ export function parseRemoteMetrics(stdout: string): RemoteMetrics {
   const totalMemoryBytes = requiredNumber(fields, 'memsize')
   if (totalMemoryBytes <= 0) throw new CollectorError('parse-failed', 'invalid memsize')
 
-  const net = numbers(fields.get('net') ?? '')
-  const countersAvailable = net.length >= 4
+  const network = parseNetstat(fields.get('netraw'))
   const iface = fields.get('iface')?.trim() || null
   const selfPid = optionalNumber(fields, 'self')
 
@@ -228,13 +242,7 @@ export function parseRemoteMetrics(stdout: string): RemoteMetrics {
       availableBytes: disk[2] * 1024,
       capacityPercent: disk[3] ?? null
     },
-    network: {
-      interface: iface,
-      rxBytes: countersAvailable ? net[1] : null,
-      txBytes: countersAvailable ? net[3] : null,
-      rxPackets: countersAvailable ? net[0] : null,
-      txPackets: countersAvailable ? net[2] : null
-    },
+    network: { ...network, interface: iface },
     bootTimeSeconds: optionalNumber(fields, 'boot'),
     uptimeSeconds: optionalNumber(fields, 'uptime'),
     batteryRaw: fields.get('battery') ?? null,
