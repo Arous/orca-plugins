@@ -132,6 +132,20 @@ export function createRuntime(orca: OrcaWorkerApi, deps: RuntimeDeps = {}): Host
     return state
   }
 
+  function adoptSettings(next: RuntimeSettings): boolean {
+    const hostChanged = next.host !== settings.host
+    settings = next
+    settingsReady = true
+    if (hostChanged) {
+      previous = null
+      failures = 0
+      state = { ...initialState(next.host, instanceId), revision: ++revision }
+    } else {
+      state = { ...state, host: next.host }
+    }
+    return hostChanged
+  }
+
   function refresh(): Promise<HostState> {
     if (stopped) return Promise.resolve(state)
     if (inFlight) return inFlight
@@ -140,16 +154,15 @@ export function createRuntime(orca: OrcaWorkerApi, deps: RuntimeDeps = {}): Host
       await Promise.resolve()
       if (!settingsReady) {
         try {
-          settings = await readSettings(orca)
+          adoptSettings(await readSettings(orca))
         } catch {
           if (stopped) return state
-          settingsFailure(false)
+          settingsFailure(Boolean(state.sample))
           publish()
           schedule()
           return state
         }
         if (stopped) return state
-        settingsReady = true
       }
 
       clearTimeout(timer)
@@ -224,16 +237,11 @@ export function createRuntime(orca: OrcaWorkerApi, deps: RuntimeDeps = {}): Host
       return
     }
     if (stopped) return
-    settingsReady = true
-    const hostChanged = next.host !== settings.host
     const intervalChanged = next.pollSeconds !== settings.pollSeconds
-    settings = next
+    const hostChanged = adoptSettings(next)
     if (hostChanged) {
       const pending = inFlight
       controller?.abort()
-      previous = null
-      failures = 0
-      state = { ...initialState(settings.host, instanceId), revision: ++revision }
       clearTimeout(timer)
       publish()
       if (pending) await pending.catch(() => undefined)
@@ -244,7 +252,6 @@ export function createRuntime(orca: OrcaWorkerApi, deps: RuntimeDeps = {}): Host
       clearTimeout(timer)
       schedule()
     }
-    state = { ...state, host: settings.host }
     if ((state.status === 'error' || state.status === 'stale') && !inFlight) void refresh()
   }
 
@@ -260,8 +267,7 @@ export function createRuntime(orca: OrcaWorkerApi, deps: RuntimeDeps = {}): Host
       void reloadSettings().catch(() => orca.log('MacBook Host Stats: settings reload failed'))
     }))
     try {
-      settings = await readSettings(orca)
-      settingsReady = true
+      adoptSettings(await readSettings(orca))
     } catch {
       if (stopped) return
       settingsFailure(false)
@@ -270,7 +276,6 @@ export function createRuntime(orca: OrcaWorkerApi, deps: RuntimeDeps = {}): Host
       return
     }
     if (stopped) return
-    state = { ...state, host: settings.host }
     publish()
     void refresh()
   }

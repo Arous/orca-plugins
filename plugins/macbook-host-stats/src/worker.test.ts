@@ -256,6 +256,51 @@ test('recovers the configured host after a failed settings reload', async () => 
   }
 })
 
+test('drops the old sample when a host change fails SSH', async () => {
+  const fake = fakeOrca()
+  const runtime = createRuntime(fake.orca, {
+    collect: async (host) => {
+      if (host === 'other-mac') throw new CollectorError('ssh-failed', 'failed')
+      return remoteMetrics
+    },
+    now: () => 1_000_000
+  })
+  await runtime.start()
+  try {
+    await runtime.refresh()
+    fake.settings.host = 'other-mac'
+    await runtime.reloadSettings()
+    await runtime.refresh()
+    const state = runtime.state()
+    assert.equal(state.host, 'other-mac')
+    assert.equal(state.sample, null)
+    assert.equal(state.status, 'error')
+  } finally {
+    runtime.stop()
+  }
+})
+
+test('keeps the last sample across repeated settings failures', async () => {
+  const fake = fakeOrca()
+  const runtime = createRuntime(fake.orca, {
+    collect: async () => remoteMetrics,
+    now: () => 1_000_000
+  })
+  await runtime.start()
+  try {
+    await runtime.refresh()
+    fake.setSettingsFailure(true)
+    await runtime.reloadSettings()
+    assert.ok(runtime.state().sample)
+    await runtime.refresh()
+    const state = runtime.state()
+    assert.ok(state.sample)
+    assert.equal(state.status, 'stale')
+  } finally {
+    runtime.stop()
+  }
+})
+
 test('switches hosts when the setting changes', async () => {
   const fake = fakeOrca()
   const hosts: string[] = []
