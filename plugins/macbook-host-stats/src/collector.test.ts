@@ -90,6 +90,14 @@ test('drops the rate after the boot marker changes', () => {
   assert.equal(unknownBoot.network.rxPerSecond, null)
 })
 
+test('keeps ordinary high-CPU helpers and names .app executables', () => {
+  const remote = parseRemoteMetrics(FIXTURE.replace(
+    /^procs=.*$/m,
+    'procs=1 1.0 2.0 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome --type=renderer|2 2.0 1.0 sort|3 3.0 1.0 ps|'
+  ))
+  assert.deepEqual(remote.processes.map((process) => process.command), ['Google Chrome', 'sort'])
+})
+
 test('marks missing network counters as unavailable, not zero', () => {
   const remote = parseRemoteMetrics(FIXTURE.replace(/^net=.*$/m, 'net='))
   assert.equal(remote.network.rxBytes, null)

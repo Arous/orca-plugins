@@ -34,6 +34,19 @@ const state = atom<HostState | null>(null)
 const failure = atom<string | null>(null)
 const busy = atom(false)
 
+type MetricItem = { label: string; value: string | number | boolean | null; code?: boolean }
+
+function MetricCard(props: { title: string; percent: number; items: MetricItem[] }) {
+  return (
+    <Card title={props.title}>
+      <Stack gap="sm">
+        <Progress label={`사용률 ${formatPercent(props.percent)}`} value={props.percent} />
+        <KeyValue items={props.items} />
+      </Stack>
+    </Card>
+  )
+}
+
 /** A slow request must not overwrite a newer worker state. */
 function apply(next: HostState): void {
   const current = read(state)
@@ -54,11 +67,15 @@ export function setup(ctx: PanelContext): void {
 
 async function refresh(): Promise<void> {
   if (read(busy)) return
+  const beforeRevision = read(state)?.revision ?? 0
   set(busy, true)
   try {
     apply(await plugin.request('stats.refresh'))
   } catch {
-    set(failure, '자원을 새로고침하지 못했습니다.')
+    const current = read(state)
+    if (!current?.sample || current.revision <= beforeRevision) {
+      set(failure, '자원을 새로고침하지 못했습니다.')
+    }
   } finally {
     set(busy, false)
   }
@@ -77,7 +94,7 @@ export default function Panel() {
         ) : (
           <Stack gap="sm" align="center">
             <Spinner label="MacBook 자원 확인 중" />
-            <Text muted size="sm">macbook2015에 연결하고 있습니다.</Text>
+            <Text muted size="sm">SSH 호스트에 연결하고 있습니다.</Text>
           </Stack>
         )}
         <Button size="sm" variant="outline" icon="refresh" disabled={loading} onPress={refresh}>
@@ -131,45 +148,36 @@ export default function Panel() {
       {sample ? (
         <>
           <Grid columns={2} gap="sm">
-            <Card title="CPU">
-              <Stack gap="sm">
-                <Progress label={`사용률 ${formatPercent(sample.cpu.usedPercent)}`} value={sample.cpu.usedPercent} />
-                <KeyValue
-                  items={[
-                    { label: 'Load 1/5/15m', value: `${sample.cpu.load1.toFixed(2)} / ${sample.cpu.load5.toFixed(2)} / ${sample.cpu.load15.toFixed(2)}` },
-                    { label: 'User / Sys', value: `${formatPercent(sample.cpu.userPercent)} / ${formatPercent(sample.cpu.sysPercent)}` },
-                    { label: '코어', value: sample.cpu.cores ?? '—' }
-                  ]}
-                />
-              </Stack>
-            </Card>
+            <MetricCard
+              title="CPU"
+              percent={sample.cpu.usedPercent}
+              items={[
+                { label: 'Load 1/5/15m', value: `${sample.cpu.load1.toFixed(2)} / ${sample.cpu.load5.toFixed(2)} / ${sample.cpu.load15.toFixed(2)}` },
+                { label: 'User / Sys', value: `${formatPercent(sample.cpu.userPercent)} / ${formatPercent(sample.cpu.sysPercent)}` },
+                { label: '코어', value: sample.cpu.cores ?? '—' }
+              ]}
+            />
 
-            <Card title="메모리">
-              <Stack gap="sm">
-                <Progress label={`사용률 ${formatPercent(sample.memory.usedPercent)}`} value={sample.memory.usedPercent} />
-                <KeyValue
-                  items={[
-                    { label: '사용 / 전체', value: `${formatBytes(sample.memory.usedBytes)} / ${formatBytes(sample.memory.totalBytes)}` },
-                    { label: '여유', value: formatBytes(sample.memory.availableBytes) },
-                    { label: 'Wired / 압축', value: `${formatBytes(sample.memory.wiredBytes)} / ${formatBytes(sample.memory.compressedBytes)}` },
-                    { label: 'Swap', value: `${formatBytes(sample.memory.swapUsedBytes)} / ${formatBytes(sample.memory.swapTotalBytes)}` }
-                  ]}
-                />
-              </Stack>
-            </Card>
+            <MetricCard
+              title="메모리"
+              percent={sample.memory.usedPercent}
+              items={[
+                { label: '사용 / 전체', value: `${formatBytes(sample.memory.usedBytes)} / ${formatBytes(sample.memory.totalBytes)}` },
+                { label: '여유', value: formatBytes(sample.memory.availableBytes) },
+                { label: 'Wired / 압축', value: `${formatBytes(sample.memory.wiredBytes)} / ${formatBytes(sample.memory.compressedBytes)}` },
+                { label: 'Swap', value: `${formatBytes(sample.memory.swapUsedBytes)} / ${formatBytes(sample.memory.swapTotalBytes)}` }
+              ]}
+            />
 
-            <Card title="디스크">
-              <Stack gap="sm">
-                <Progress label={`사용률 ${formatPercent(sample.disk.usedPercent)}`} value={sample.disk.usedPercent} />
-                <KeyValue
-                  items={[
-                    { label: '사용 / 전체', value: `${formatBytes(sample.disk.usedBytes)} / ${formatBytes(sample.disk.totalBytes)}` },
-                    { label: '남음', value: formatBytes(sample.disk.availableBytes) },
-                    { label: '볼륨', value: '/System/Volumes/Data', code: true }
-                  ]}
-                />
-              </Stack>
-            </Card>
+            <MetricCard
+              title="디스크"
+              percent={sample.disk.usedPercent}
+              items={[
+                { label: '사용 / 전체', value: `${formatBytes(sample.disk.usedBytes)} / ${formatBytes(sample.disk.totalBytes)}` },
+                { label: '남음', value: formatBytes(sample.disk.availableBytes) },
+                { label: '볼륨', value: '/System/Volumes/Data', code: true }
+              ]}
+            />
 
             <Card title="네트워크">
               <KeyValue
@@ -216,7 +224,7 @@ export default function Panel() {
         </>
       ) : (
         <Callout tone="neutral" title="표시할 자원이 없습니다">
-          새로고침을 누르면 SSH로 macbook2015를 조회합니다.
+          새로고침을 누르면 SSH로 {current.host}를 조회합니다.
         </Callout>
       )}
     </Stack>

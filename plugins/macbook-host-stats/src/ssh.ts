@@ -41,7 +41,7 @@ printf 'boot=%s\n' "$BOOT"
 NOW=$(date +%s)
 if [ -n "$BOOT" ] && [ "$BOOT" -gt 0 ] 2>/dev/null; then printf 'uptime=%s\n' "$((NOW-BOOT))"; else printf 'uptime=\n'; fi
 printf 'battery=%s\n' "$(pmset -g batt 2>/dev/null | tail -2 | tr '\n' '|')"
-printf 'procs=%s\n' "$(ps -Ao pid=,%cpu=,%mem=,command= -ww -r 2>/dev/null | head -12 | tr '\n' '|')"
+printf 'procs=%s\n' "$(ps -Ao pid=,%cpu=,%mem=,command= -ww -r 2>/dev/null | head -20 | tr '\n' '|')"
 `
 
 export function isValidHost(host: string): boolean {

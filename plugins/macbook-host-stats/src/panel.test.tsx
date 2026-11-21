@@ -91,6 +91,28 @@ test('keeps a successful sample when refresh RPC fails', async () => {
   }
 })
 
+test('does not mark a newer successful event as failed', async () => {
+  const host = mockHost({
+    requests: {
+      'stats.get': readyState,
+      'stats.refresh': () => new Promise<HostState>((_resolve, reject) => {
+        setTimeout(() => reject(hostError('action_failed', 'refresh failed')), 0)
+      })
+    }
+  })
+  const view = await mount(panel, { host })
+  try {
+    const pressed = view.press({ text: '새로고침' })
+    await view.post('stats.changed', staleState)
+    await pressed
+    const tree = JSON.stringify(view.tree())
+    assert.ok(tree.includes('마지막 값을 표시하는 중'), tree)
+    assert.ok(!tree.includes('자원을 새로고침하지 못했습니다.'), tree)
+  } finally {
+    await view.unmount()
+  }
+})
+
 test('ignores an older event after a newer event', async () => {
   const host = mockHost({ requests: { 'stats.get': readyState } })
   const view = await mount(panel, { host })
