@@ -31,6 +31,7 @@ export const remoteMetrics = {
     rxPackets: 10,
     txPackets: 5
   },
+  bootTimeSeconds: 1_793_814_305,
   uptimeSeconds: 1_461_600,
   batteryRaw: "Now drawing from 'AC Power'|-InternalBattery-0 100%; charged; 0:00 remaining present: true",
   processes: [{ pid: 1, command: 'WindowServer', cpuPercent: 12.4, memoryPercent: 3.2 }]
@@ -41,6 +42,7 @@ const sample: HostSample = {
   at: 1_795_280_000_000,
   host: 'macbook2015',
   model: 'MacBookPro11,4',
+  bootTimeSeconds: 1_793_814_305,
   cpu: {
     cores: 8,
     load1: 1.76,
@@ -114,7 +116,7 @@ export const errorState: HostState = {
   host: 'macbook2015',
   sample: null,
   error: 'SSH 연결에 실패했습니다. 호스트와 키를 확인하세요.',
-  lastAttemptAt: sample.at,
+  lastAttemptAt: sample.at - 60_000,
   lastSuccessAt: null,
   refreshing: false
 }

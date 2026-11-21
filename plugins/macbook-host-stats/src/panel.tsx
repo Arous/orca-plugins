@@ -45,22 +45,42 @@ function errorState(message: string): HostState {
   }
 }
 
+function stateTime(value: HostState): number {
+  return value.sample?.at ?? value.lastAttemptAt ?? 0
+}
+
+/** A slow request must not overwrite a newer event that already reached the panel. */
+function apply(next: HostState): void {
+  const current = read(state)
+  if (!current || stateTime(next) >= stateTime(current)) set(state, next)
+}
+
 export function setup(ctx: PanelContext): void {
-  ctx.subscriptions.push(plugin.on('stats.changed', (next) => set(state, next)))
+  ctx.subscriptions.push(plugin.on('stats.changed', apply))
   void plugin.request('stats.get').then((next) => {
-    if (!ctx.signal.aborted) set(state, next)
+    if (!ctx.signal.aborted) apply(next)
   }).catch(() => {
-    if (!ctx.signal.aborted) set(state, errorState('플러그인 워커에 연결하지 못했습니다.'))
+    if (!ctx.signal.aborted && read(state)?.sample === null) {
+      set(state, errorState('플러그인 워커에 연결하지 못했습니다.'))
+    }
   })
 }
 
 async function refresh(): Promise<void> {
   if (read(busy)) return
+  const before = read(state)
+  const attemptTime = before?.lastAttemptAt ?? 0
   set(busy, true)
   try {
-    set(state, await plugin.request('stats.refresh'))
+    apply(await plugin.request('stats.refresh'))
   } catch {
-    set(state, errorState('자원을 새로고침하지 못했습니다.'))
+    const current = read(state)
+    if (current?.sample && stateTime(current) > attemptTime) return
+    if (current?.sample) {
+      set(state, { ...current, status: 'stale', error: '자원을 새로고침하지 못했습니다.', refreshing: false })
+    } else {
+      set(state, errorState('자원을 새로고침하지 못했습니다.'))
+    }
   } finally {
     set(busy, false)
   }

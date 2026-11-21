@@ -137,6 +137,7 @@ export function createRuntime(orca: OrcaWorkerApi, deps: RuntimeDeps = {}): Host
         const sample = buildSample(remote, previous, host, at)
         previous = {
           at,
+          bootTimeSeconds: sample.bootTimeSeconds,
           interface: sample.network.interface,
           rxBytes: sample.network.rxBytes,
           txBytes: sample.network.txBytes

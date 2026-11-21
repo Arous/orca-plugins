@@ -7,12 +7,6 @@ const TIMEOUT_MS = 20_000
 const MAX_OUTPUT_BYTES = 64 * 1024
 export const HOST_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,252}$/
 
-export type SshOptions = {
-  sshPath?: string
-  timeoutMs?: number
-  maxOutputBytes?: number
-}
-
 /**
  * Fixed remote program. It is sent on stdin so no setting or panel input is ever
  * interpolated into shell syntax. Keep every command read-only and unprivileged.
@@ -40,6 +34,7 @@ IFACE=$(route -n get default 2>/dev/null | awk '/interface:/{print $2; exit}')
 printf 'iface=%s\n' "$IFACE"
 printf 'net=%s\n' "$(netstat -ibn 2>/dev/null | awk -v i="$IFACE" '$1==i && $3 ~ /^<Link/ {print $5, $7, $8, $10; exit}')"
 BOOT=$(sysctl -n kern.boottime 2>/dev/null | awk -F'[=,]' '{gsub(/ /,"",$2); print $2; exit}')
+printf 'boot=%s\n' "$BOOT"
 NOW=$(date +%s)
 if [ -n "$BOOT" ] && [ "$BOOT" -gt 0 ] 2>/dev/null; then printf 'uptime=%s\n' "$((NOW-BOOT))"; else printf 'uptime=\n'; fi
 printf 'battery=%s\n' "$(pmset -g batt 2>/dev/null | tail -2 | tr '\n' '|')"
@@ -61,14 +56,14 @@ export function sshArgs(host: string): string[] {
   ]
 }
 
-function runSsh(host: string, signal: AbortSignal, options: SshOptions): Promise<string> {
+function runSsh(host: string, signal: AbortSignal): Promise<string> {
   const { promise, resolve, reject } = Promise.withResolvers<string>()
   let settled = false
   let stdout = ''
   let stdoutBytes = 0
   let timer: NodeJS.Timeout | undefined
 
-  const child = spawn(options.sshPath ?? SSH_PATH, sshArgs(host), {
+  const child = spawn(SSH_PATH, sshArgs(host), {
     stdio: ['pipe', 'pipe', 'pipe'],
     windowsHide: true
   })
@@ -95,7 +90,7 @@ function runSsh(host: string, signal: AbortSignal, options: SshOptions): Promise
   timer = setTimeout(() => {
     child.kill('SIGKILL')
     finish(() => reject(new CollectorError('timeout', 'timeout')))
-  }, options.timeoutMs ?? TIMEOUT_MS)
+  }, TIMEOUT_MS)
 
   child.on('error', () => {
     finish(() => reject(new CollectorError('ssh-failed', 'ssh failed')))
@@ -104,7 +99,7 @@ function runSsh(host: string, signal: AbortSignal, options: SshOptions): Promise
   child.stdout.setEncoding('utf8')
   child.stdout.on('data', (chunk: string) => {
     stdoutBytes += Buffer.byteLength(chunk)
-    if (stdoutBytes > (options.maxOutputBytes ?? MAX_OUTPUT_BYTES)) {
+    if (stdoutBytes > MAX_OUTPUT_BYTES) {
       child.kill('SIGKILL')
       finish(() => reject(new CollectorError('ssh-failed', 'ssh output too large')))
       return
@@ -125,10 +120,10 @@ function runSsh(host: string, signal: AbortSignal, options: SshOptions): Promise
   return promise
 }
 
-export async function collectRemote(host: string, signal: AbortSignal, options: SshOptions = {}): Promise<RemoteMetrics> {
+export async function collectRemote(host: string, signal: AbortSignal): Promise<RemoteMetrics> {
   if (!isValidHost(host)) {
     throw new CollectorError('host-invalid', 'invalid host')
   }
-  const stdout = await runSsh(host, signal, options)
+  const stdout = await runSsh(host, signal)
   return parseRemoteMetrics(stdout)
 }

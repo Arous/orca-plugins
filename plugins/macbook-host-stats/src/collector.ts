@@ -39,11 +39,12 @@ export type RemoteMetrics = {
   }
   network: {
     interface: string | null
-    rxBytes: number
-    txBytes: number
-    rxPackets: number
-    txPackets: number
+    rxBytes: number | null
+    txBytes: number | null
+    rxPackets: number | null
+    txPackets: number | null
   }
+  bootTimeSeconds: number | null
   uptimeSeconds: number | null
   batteryRaw: string | null
   processes: ProcessSample[]
@@ -173,6 +174,7 @@ export function parseRemoteMetrics(stdout: string): RemoteMetrics {
   if (totalMemoryBytes <= 0) throw new CollectorError('parse-failed', 'invalid memsize')
 
   const net = numbers(fields.get('net') ?? '')
+  const countersAvailable = net.length >= 4
   const iface = fields.get('iface')?.trim() || null
 
   return {
@@ -203,11 +205,12 @@ export function parseRemoteMetrics(stdout: string): RemoteMetrics {
     },
     network: {
       interface: iface,
-      rxBytes: net[1] ?? 0,
-      txBytes: net[3] ?? 0,
-      rxPackets: net[0] ?? 0,
-      txPackets: net[2] ?? 0
+      rxBytes: countersAvailable ? net[1] : null,
+      txBytes: countersAvailable ? net[3] : null,
+      rxPackets: countersAvailable ? net[0] : null,
+      txPackets: countersAvailable ? net[2] : null
     },
+    bootTimeSeconds: optionalNumber(fields, 'boot'),
     uptimeSeconds: optionalNumber(fields, 'uptime'),
     batteryRaw: fields.get('battery') ?? null,
     processes: parseProcesses(fields.get('procs'))
@@ -219,8 +222,8 @@ function clampPercent(value: number): number {
   return Math.min(100, Math.max(0, value))
 }
 
-function rate(current: number, previous: number, seconds: number | null): number | null {
-  if (seconds === null || seconds <= 0 || current < previous) return null
+function rate(current: number | null, previous: number | null, seconds: number | null): number | null {
+  if (current === null || previous === null || seconds === null || seconds <= 0 || current < previous) return null
   return (current - previous) / seconds
 }
 
@@ -259,7 +262,9 @@ export function buildSample(
     swapUsedBytes: remote.swap.usedBytes
   }
 
-  const seconds = previous && previous.interface === remote.network.interface && at > previous.at
+  const bootMatches = previous === null || previous.bootTimeSeconds === null ||
+    remote.bootTimeSeconds === null || previous.bootTimeSeconds === remote.bootTimeSeconds
+  const seconds = previous && previous.interface === remote.network.interface && bootMatches && at > previous.at
     ? (at - previous.at) / 1000
     : null
   const network: NetworkSample = {
@@ -268,8 +273,8 @@ export function buildSample(
     txBytes: remote.network.txBytes,
     rxPackets: remote.network.rxPackets,
     txPackets: remote.network.txPackets,
-    rxPerSecond: previous ? rate(remote.network.rxBytes, previous.rxBytes, seconds) : null,
-    txPerSecond: previous ? rate(remote.network.txBytes, previous.txBytes, seconds) : null
+    rxPerSecond: rate(remote.network.rxBytes, previous?.rxBytes ?? null, seconds),
+    txPerSecond: rate(remote.network.txBytes, previous?.txBytes ?? null, seconds)
   }
 
   const diskUsed = Math.min(remote.disk.totalBytes, remote.disk.usedBytes)
@@ -282,6 +287,7 @@ export function buildSample(
     at,
     host,
     model: remote.model,
+    bootTimeSeconds: remote.bootTimeSeconds,
     cpu: {
       cores: remote.cores,
       load1: remote.load[0],

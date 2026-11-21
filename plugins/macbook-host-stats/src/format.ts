@@ -30,22 +30,19 @@ export function formatDuration(seconds: number | null | undefined): string {
   return `${minutes}m`
 }
 
+const STATUS_META: Record<HostStatus, { label: string; tone: 'neutral' | 'success' | 'warning' | 'danger' }> = {
+  loading: { label: '확인 중', tone: 'neutral' },
+  ready: { label: '정상', tone: 'success' },
+  stale: { label: '지연', tone: 'warning' },
+  error: { label: '오류', tone: 'danger' }
+}
+
 export function statusLabel(status: HostStatus): string {
-  switch (status) {
-    case 'ready': return '정상'
-    case 'stale': return '지연'
-    case 'error': return '오류'
-    default: return '확인 중'
-  }
+  return STATUS_META[status].label
 }
 
 export function statusTone(status: HostStatus): 'neutral' | 'success' | 'warning' | 'danger' {
-  switch (status) {
-    case 'ready': return 'success'
-    case 'stale': return 'warning'
-    case 'error': return 'danger'
-    default: return 'neutral'
-  }
+  return STATUS_META[status].tone
 }
 
 export function statusBarText(state: HostState): string {
@@ -55,6 +52,10 @@ export function statusBarText(state: HostState): string {
   return `MBP ${Math.round(state.sample.cpu.usedPercent)}% · ${Math.round(state.sample.memory.usedPercent)}% · ${Math.round(state.sample.disk.usedPercent)}%`
 }
 
+export function sampleSummary(sample: HostSample): string {
+  return `CPU ${formatPercent(sample.cpu.usedPercent)} · 메모리 ${formatPercent(sample.memory.usedPercent)} · 디스크 ${formatPercent(sample.disk.usedPercent)}`
+}
+
 export function statusBarTooltip(state: HostState): string {
   const sample = state.sample
   if (!sample) {
@@ -62,7 +63,7 @@ export function statusBarTooltip(state: HostState): string {
   }
   const lines = [
     `${state.host} · ${sample.model ?? '알 수 없는 모델'}`,
-    `CPU ${formatPercent(sample.cpu.usedPercent)} · 메모리 ${formatPercent(sample.memory.usedPercent)} · 디스크 ${formatPercent(sample.disk.usedPercent)}`,
+    sampleSummary(sample),
     `마지막 수집 ${new Date(sample.at).toLocaleTimeString('ko-KR', { hour12: false })}`
   ]
   if (state.error) lines.push(state.error)
@@ -70,9 +71,7 @@ export function statusBarTooltip(state: HostState): string {
 }
 
 export function statusSummary(state: HostState): string {
-  if (state.status === 'ready' && state.sample) {
-    return `CPU ${formatPercent(state.sample.cpu.usedPercent)} · 메모리 ${formatPercent(state.sample.memory.usedPercent)} · 디스크 ${formatPercent(state.sample.disk.usedPercent)}`
-  }
+  if (state.status === 'ready' && state.sample) return sampleSummary(state.sample)
   return state.error ?? 'MacBook 자원을 확인하고 있습니다.'
 }
 

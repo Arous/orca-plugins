@@ -40,10 +40,10 @@ export type DiskSample = {
 
 export type NetworkSample = {
   interface: string | null
-  rxBytes: number
-  txBytes: number
-  rxPackets: number
-  txPackets: number
+  rxBytes: number | null
+  txBytes: number | null
+  rxPackets: number | null
+  txPackets: number | null
   rxPerSecond: number | null
   txPerSecond: number | null
 }
@@ -65,6 +65,7 @@ export type HostSample = {
   at: number
   host: string
   model: string | null
+  bootTimeSeconds: number | null
   cpu: CpuSample
   memory: MemorySample
   disk: DiskSample
@@ -86,9 +87,10 @@ export type HostState = {
 
 export type NetCounters = {
   at: number
+  bootTimeSeconds: number | null
   interface: string | null
-  rxBytes: number
-  txBytes: number
+  rxBytes: number | null
+  txBytes: number | null
 }
 
 declare module 'orca' {
