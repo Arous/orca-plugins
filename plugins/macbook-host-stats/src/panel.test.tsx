@@ -51,6 +51,25 @@ test('shows the failure state when no sample exists', async () => {
   }
 })
 
+test('shows an error and retry button when the initial RPC rejects', async () => {
+  const host = mockHost({
+    requests: {
+      'stats.get': () => {
+        throw hostError('unavailable', 'worker unavailable')
+      }
+    }
+  })
+  const view = await mount(panel, { host })
+  try {
+    const tree = JSON.stringify(view.tree())
+    assert.ok(tree.includes('조회 실패'))
+    assert.ok(tree.includes('플러그인 워커에 연결하지 못했습니다.'))
+    assert.ok(tree.includes('다시 시도'))
+  } finally {
+    await view.unmount()
+  }
+})
+
 test('keeps a successful sample when refresh RPC fails', async () => {
   const host = mockHost({
     requests: {
@@ -72,29 +91,16 @@ test('keeps a successful sample when refresh RPC fails', async () => {
   }
 })
 
-test('ignores an older response that resolves after a newer event', async () => {
-  let resolveGet: ((value: HostState) => void) | undefined
-  const fallback = setTimeout(() => resolveGet?.(errorState), 1000)
-  const host = mockHost({
-    requests: {
-      'stats.get': () => new Promise<HostState>((resolve) => {
-        resolveGet = resolve
-      })
-    }
-  })
+test('ignores an older event after a newer event', async () => {
+  const host = mockHost({ requests: { 'stats.get': readyState } })
   const view = await mount(panel, { host })
   try {
+    await view.post('stats.changed', staleState)
     await view.post('stats.changed', readyState)
-    assert.ok(resolveGet)
-    resolveGet(errorState)
-    clearTimeout(fallback)
-    await view.settled()
     const tree = JSON.stringify(view.tree())
-    assert.ok(tree.includes('CPU'))
-    assert.ok(!tree.includes('조회 실패'))
+    assert.ok(tree.includes('마지막 값을 표시하는 중'), tree)
+    assert.ok(tree.includes('지연'), tree)
   } finally {
-    clearTimeout(fallback)
-    resolveGet?.(errorState)
     await view.unmount()
   }
 })

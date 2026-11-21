@@ -95,11 +95,13 @@ orca plugin inspect . --json
 - 워커의 ready/stale/error 상태, 상태 표시줄, 호스트 변경
 - 패널의 정상/지연/오류 렌더와 새로고침
 
-`orca plugin check`는 패널만 검사하며, 실제 SSH 연결과 원격 macOS 출력의 전체 경로를 대신하지 않습니다. 실제 호스트 검증은 다음 명령으로 수행했습니다.
+`orca plugin check`는 패널만 검사하며, 실제 SSH 연결과 원격 macOS 출력의 전체 경로를 대신하지 않습니다. 실제 `macbook2015` 검증에서는 다음 값을 확인했습니다.
 
 ```text
 MacBookPro11,4 · Intel i7-4770HQ · 8 logical cores · 16 GB
-load 1.76 / 1.53 / 1.47 · CPU 12.2% · disk 42% · battery 100% AC
+CPU 8% · memory 28.8% · disk 47% · interface en0
+RX 54,788,855,402 bytes · boot 1,793,814,305 · uptime 1,464,188 s
+battery 100% AC · top processes 5
 ```
 
 ## 알려진 제한

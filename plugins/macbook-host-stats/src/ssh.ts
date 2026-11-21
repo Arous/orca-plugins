@@ -26,7 +26,10 @@ printf 'vm=%s\n' "$(vm_stat 2>/dev/null | awk '
   /Pages speculative:/ { gsub(/\./,"",$3); s=$3 }
   /Pages wired down:/ { gsub(/\./,"",$4); w=$4 }
   /Pages occupied by compressor:/ { gsub(/\./,"",$5); c=$5 }
-  END { if (ps) printf "%d %d %d %d %d %d %d", ps, f, a, i, s, w, c }
+  END {
+    if (ps && f != "" && a != "" && i != "" && s != "" && w != "" && c != "")
+      printf "%d %d %d %d %d %d %d", ps, f, a, i, s, w, c
+  }
 ')"
 printf 'swap=%s\n' "$(sysctl -n vm.swapusage 2>/dev/null)"
 printf 'disk=%s\n' "$(df -kP /System/Volumes/Data 2>/dev/null | tail -1 | awk '{print $2, $3, $4, $5}')"

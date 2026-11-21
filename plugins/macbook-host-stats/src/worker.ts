@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import type { OrcaWorkerApi } from 'orca/worker'
 import { buildSample, type RemoteMetrics } from './collector'
 import { CollectorError } from './errors'
@@ -34,10 +35,12 @@ export type HostRuntime = {
 
 type Disposable = { dispose(): void }
 
-function initialState(host: string): HostState {
+function initialState(host: string, instanceId: string): HostState {
   return {
     status: 'loading',
     host,
+    instanceId,
+    revision: 0,
     sample: null,
     error: null,
     lastAttemptAt: null,
@@ -81,9 +84,11 @@ function errorText(error: unknown): string {
 export function createRuntime(orca: OrcaWorkerApi, deps: RuntimeDeps = {}): HostRuntime {
   const collect = deps.collect ?? ((host: string, signal: AbortSignal) => collectRemote(host, signal))
   const now = deps.now ?? Date.now
+  const instanceId = randomUUID()
   const disposables: Disposable[] = []
   let settings: RuntimeSettings = { host: DEFAULT_HOST, pollSeconds: DEFAULT_POLL_SECONDS }
-  let state = initialState(settings.host)
+  let state = initialState(settings.host, instanceId)
+  let revision = 0
   let previous: NetCounters | null = null
   let timer: NodeJS.Timeout | undefined
   let inFlight: Promise<HostState> | null = null
@@ -122,7 +127,7 @@ export function createRuntime(orca: OrcaWorkerApi, deps: RuntimeDeps = {}): Host
     const id = ++runId
     const host = settings.host
     const attemptAt = now()
-    state = { ...state, host, refreshing: true, lastAttemptAt: attemptAt }
+    state = { ...state, host, revision: ++revision, refreshing: true, lastAttemptAt: attemptAt }
     publish()
     const current = new AbortController()
     controller = current
@@ -145,6 +150,8 @@ export function createRuntime(orca: OrcaWorkerApi, deps: RuntimeDeps = {}): Host
         state = {
           status: 'ready',
           host,
+          instanceId,
+          revision: ++revision,
           sample,
           error: null,
           lastAttemptAt: attemptAt,
@@ -157,6 +164,7 @@ export function createRuntime(orca: OrcaWorkerApi, deps: RuntimeDeps = {}): Host
         failures += 1
         state = {
           ...state,
+          revision: ++revision,
           status: state.lastSuccessAt === null ? 'error' : 'stale',
           error: errorText(error),
           refreshing: false
@@ -188,7 +196,7 @@ export function createRuntime(orca: OrcaWorkerApi, deps: RuntimeDeps = {}): Host
       controller?.abort()
       previous = null
       failures = 0
-      state = initialState(settings.host)
+      state = { ...initialState(settings.host, instanceId), revision: ++revision }
       clearTimeout(timer)
       publish()
       if (pending) await pending.catch(() => undefined)

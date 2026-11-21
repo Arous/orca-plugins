@@ -262,8 +262,8 @@ export function buildSample(
     swapUsedBytes: remote.swap.usedBytes
   }
 
-  const bootMatches = previous === null || previous.bootTimeSeconds === null ||
-    remote.bootTimeSeconds === null || previous.bootTimeSeconds === remote.bootTimeSeconds
+  const bootMatches = previous !== null && previous.bootTimeSeconds !== null &&
+    remote.bootTimeSeconds !== null && previous.bootTimeSeconds === remote.bootTimeSeconds
   const seconds = previous && previous.interface === remote.network.interface && bootMatches && at > previous.at
     ? (at - previous.at) / 1000
     : null

@@ -28,31 +28,19 @@ import {
   statusLabel,
   statusTone
 } from './format'
-import { DEFAULT_HOST, type HostState } from './protocol'
+import type { HostState } from './protocol'
 
 const state = atom<HostState | null>(null)
+const failure = atom<string | null>(null)
 const busy = atom(false)
 
-function errorState(message: string): HostState {
-  return {
-    status: 'error',
-    host: DEFAULT_HOST,
-    sample: null,
-    error: message,
-    lastAttemptAt: null,
-    lastSuccessAt: null,
-    refreshing: false
-  }
-}
-
-function stateTime(value: HostState): number {
-  return value.sample?.at ?? value.lastAttemptAt ?? 0
-}
-
-/** A slow request must not overwrite a newer event that already reached the panel. */
+/** A slow request must not overwrite a newer worker state. */
 function apply(next: HostState): void {
   const current = read(state)
-  if (!current || stateTime(next) >= stateTime(current)) set(state, next)
+  if (!current || next.instanceId !== current.instanceId || next.revision >= current.revision) {
+    set(state, next)
+    set(failure, null)
+  }
 }
 
 export function setup(ctx: PanelContext): void {
@@ -60,27 +48,17 @@ export function setup(ctx: PanelContext): void {
   void plugin.request('stats.get').then((next) => {
     if (!ctx.signal.aborted) apply(next)
   }).catch(() => {
-    if (!ctx.signal.aborted && read(state)?.sample === null) {
-      set(state, errorState('플러그인 워커에 연결하지 못했습니다.'))
-    }
+    if (!ctx.signal.aborted) set(failure, '플러그인 워커에 연결하지 못했습니다.')
   })
 }
 
 async function refresh(): Promise<void> {
   if (read(busy)) return
-  const before = read(state)
-  const attemptTime = before?.lastAttemptAt ?? 0
   set(busy, true)
   try {
     apply(await plugin.request('stats.refresh'))
   } catch {
-    const current = read(state)
-    if (current?.sample && stateTime(current) > attemptTime) return
-    if (current?.sample) {
-      set(state, { ...current, status: 'stale', error: '자원을 새로고침하지 못했습니다.', refreshing: false })
-    } else {
-      set(state, errorState('자원을 새로고침하지 못했습니다.'))
-    }
+    set(failure, '자원을 새로고침하지 못했습니다.')
   } finally {
     set(busy, false)
   }
@@ -88,23 +66,34 @@ async function refresh(): Promise<void> {
 
 export default function Panel() {
   const current = read(state)
+  const failureMessage = read(failure)
   const loading = read(busy)
 
   if (!current) {
     return (
-      <Stack gap="md" align="center">
-        <Spinner label="MacBook 자원 확인 중" />
-        <Text muted size="sm">macbook2015에 연결하고 있습니다.</Text>
+      <Stack gap="md">
+        {failureMessage ? (
+          <Callout tone="danger" title="조회 실패">{failureMessage}</Callout>
+        ) : (
+          <Stack gap="sm" align="center">
+            <Spinner label="MacBook 자원 확인 중" />
+            <Text muted size="sm">macbook2015에 연결하고 있습니다.</Text>
+          </Stack>
+        )}
+        <Button size="sm" variant="outline" icon="refresh" disabled={loading} onPress={refresh}>
+          {loading ? '조회 중' : '다시 시도'}
+        </Button>
       </Stack>
     )
   }
 
   const sample = current.sample
+  const displayStatus = failureMessage ? (sample ? 'stale' : 'error') : current.status
   return (
     <Stack gap="md">
       <Row justify="between" align="center">
         <Heading level={2}>MacBook 자원</Heading>
-        <Badge tone={statusTone(current.status)}>{statusLabel(current.status)}</Badge>
+        <Badge tone={statusTone(displayStatus)}>{statusLabel(displayStatus)}</Badge>
       </Row>
 
       <Row justify="between" align="center" gap="sm">
@@ -130,12 +119,12 @@ export default function Panel() {
         </Button>
       </Row>
 
-      {current.error ? (
+      {failureMessage || current.error ? (
         <Callout
-          tone={current.status === 'stale' ? 'warning' : 'danger'}
-          title={current.status === 'stale' ? '마지막 값을 표시하는 중' : '조회 실패'}
+          tone={displayStatus === 'stale' ? 'warning' : 'danger'}
+          title={displayStatus === 'stale' ? '마지막 값을 표시하는 중' : '조회 실패'}
         >
-          {current.error}
+          {failureMessage ?? current.error}
         </Callout>
       ) : null}
 

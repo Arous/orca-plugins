@@ -85,6 +85,9 @@ test('drops the rate after the boot marker changes', () => {
   }
   const next = buildSample(remote, previous, 'macbook2015', 1_010_000)
   assert.equal(next.network.rxPerSecond, null)
+
+  const unknownBoot = buildSample(remote, { ...previous, bootTimeSeconds: null }, 'macbook2015', 1_010_000)
+  assert.equal(unknownBoot.network.rxPerSecond, null)
 })
 
 test('marks missing network counters as unavailable, not zero', () => {

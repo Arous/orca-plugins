@@ -98,6 +98,8 @@ const sample: HostSample = {
 export const readyState: HostState = {
   status: 'ready',
   host: 'macbook2015',
+  instanceId: 'test-worker',
+  revision: 1,
   sample,
   error: null,
   lastAttemptAt: sample.at,
@@ -108,12 +110,15 @@ export const readyState: HostState = {
 export const staleState: HostState = {
   ...readyState,
   status: 'stale',
+  revision: 2,
   error: 'SSH 연결에 실패했습니다. 호스트와 키를 확인하세요.'
 }
 
 export const errorState: HostState = {
   status: 'error',
   host: 'macbook2015',
+  instanceId: 'test-worker',
+  revision: 3,
   sample: null,
   error: 'SSH 연결에 실패했습니다. 호스트와 키를 확인하세요.',
   lastAttemptAt: sample.at - 60_000,

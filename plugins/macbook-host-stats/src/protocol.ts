@@ -78,6 +78,8 @@ export type HostSample = {
 export type HostState = {
   status: HostStatus
   host: string
+  instanceId: string
+  revision: number
   sample: HostSample | null
   error: string | null
   lastAttemptAt: number | null
