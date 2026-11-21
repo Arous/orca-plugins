@@ -4,7 +4,7 @@ import { CollectorError, type CollectorErrorCode } from './errors'
 
 const SSH_PATH = '/usr/bin/ssh'
 const TIMEOUT_MS = 20_000
-const MAX_OUTPUT_BYTES = 64 * 1024
+const MAX_OUTPUT_BYTES = 128 * 1024
 export const HOST_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,252}$/
 
 /**
@@ -43,7 +43,8 @@ printf 'boot=%s\n' "$BOOT"
 NOW=$(date +%s)
 if [ -n "$BOOT" ] && [ "$BOOT" -gt 0 ] 2>/dev/null; then printf 'uptime=%s\n' "$((NOW-BOOT))"; else printf 'uptime=\n'; fi
 printf 'battery=%s\n' "$(pmset -g batt 2>/dev/null | tail -2 | tr '\n' '|')"
-printf 'procs=%s\n' "$(ps -Ao pid=,%cpu=,%mem=,command= -ww -r 2>/dev/null | head -20 | sed -E 's/^ *([0-9]+ +[0-9.]+ +[0-9.]+ +[^ ]+).*/\1/' | tr '\n' '|')"
+printf 'self=%s\n' "$$"
+printf 'procs=%s\n' "$(ps -Ao pid=,ppid=,%cpu=,%mem=,command= -ww -r 2>/dev/null | sed -E 's/^ *([0-9]+ +[0-9]+ +[0-9.]+ +[0-9.]+ +[^ ]+).*/\1/' | tr '\n' '|')"
 `
 
 export function isValidHost(host: string): boolean {

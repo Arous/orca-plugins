@@ -108,8 +108,6 @@ function parseBattery(raw: string | undefined): BatterySample | null {
   }
 }
 
-const HELPER_PROCESSES = new Set(['head', 'ps', 'sed', 'tr'])
-
 function processName(command: string): string {
   const token = command.trim().split(/\s+/, 1)[0] ?? ''
   const base = token.slice(token.lastIndexOf('/') + 1) || token
@@ -117,24 +115,53 @@ function processName(command: string): string {
   return name.length > 32 ? `${name.slice(0, 31)}…` : name
 }
 
-function parseProcesses(raw: string | undefined): ProcessSample[] {
-  const processes: ProcessSample[] = []
+type RawProcess = {
+  pid: number
+  ppid: number
+  cpuPercent: number
+  memoryPercent: number
+  command: string
+}
+
+function parseProcesses(raw: string | undefined, selfPid: number | null): ProcessSample[] {
+  const entries: RawProcess[] = []
   for (const chunk of raw?.split('|') ?? []) {
     const line = chunk.trim()
     if (!line) continue
-    const match = /^(\d+)\s+([\d.]+)\s+([\d.]+)\s+(.+)$/.exec(line)
+    const match = /^(\d+)\s+(\d+)\s+([\d.]+)\s+([\d.]+)\s+(.+)$/.exec(line)
     if (!match) continue
     const pid = Number(match[1])
-    const cpuPercent = Number(match[2])
-    const memoryPercent = Number(match[3])
-    const command = processName(match[4])
-    if (!command || HELPER_PROCESSES.has(command.toLowerCase())) continue
-    if (!Number.isFinite(pid) || !Number.isFinite(cpuPercent) || !Number.isFinite(memoryPercent)) continue
+    const ppid = Number(match[2])
+    const cpuPercent = Number(match[3])
+    const memoryPercent = Number(match[4])
+    if (!Number.isFinite(pid) || !Number.isFinite(ppid) ||
+        !Number.isFinite(cpuPercent) || !Number.isFinite(memoryPercent)) continue
+    entries.push({ pid, ppid, cpuPercent, memoryPercent, command: match[5] })
+  }
+
+  const parents = new Map(entries.map((entry) => [entry.pid, entry.ppid]))
+  const isCollector = (pid: number): boolean => {
+    if (selfPid === null) return false
+    let current = pid
+    for (let depth = 0; depth < 32; depth += 1) {
+      if (current === selfPid) return true
+      const parent = parents.get(current)
+      if (parent === undefined || parent === current || parent === 0) return false
+      current = parent
+    }
+    return false
+  }
+
+  const processes: ProcessSample[] = []
+  for (const entry of entries) {
+    if (isCollector(entry.pid)) continue
+    const command = processName(entry.command)
+    if (!command) continue
     processes.push({
-      pid,
+      pid: entry.pid,
       command,
-      cpuPercent,
-      memoryPercent
+      cpuPercent: entry.cpuPercent,
+      memoryPercent: entry.memoryPercent
     })
     if (processes.length === 5) break
   }
@@ -171,6 +198,7 @@ export function parseRemoteMetrics(stdout: string): RemoteMetrics {
   const net = numbers(fields.get('net') ?? '')
   const countersAvailable = net.length >= 4
   const iface = fields.get('iface')?.trim() || null
+  const selfPid = optionalNumber(fields, 'self')
 
   return {
     model: fields.get('model')?.trim() || null,
@@ -208,7 +236,7 @@ export function parseRemoteMetrics(stdout: string): RemoteMetrics {
     bootTimeSeconds: optionalNumber(fields, 'boot'),
     uptimeSeconds: optionalNumber(fields, 'uptime'),
     batteryRaw: fields.get('battery') ?? null,
-    processes: parseProcesses(fields.get('procs'))
+    processes: parseProcesses(fields.get('procs'), selfPid)
   }
 }
 

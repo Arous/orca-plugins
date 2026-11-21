@@ -15,7 +15,8 @@ net=38160985 44218055775 15295486 5962071256
 boot=1793814305
 uptime=1461600
 battery=Now drawing from 'AC Power'|-InternalBattery-0 (id=6684771)\t100%; charged; 0:00 remaining present: true
-procs=1234 12.4 3.2 WindowServer|5678 8.1 6.7 Safari|9012 4.3 1.1 kernel_task|
+self=100
+procs=1234 1 12.4 3.2 WindowServer|5678 1 8.1 6.7 Safari|9012 1 4.3 1.1 kernel_task|
 `
 
 test('parses one remote reading into bytes and percentages', () => {
@@ -93,7 +94,7 @@ test('drops the rate after the boot marker changes', () => {
 test('keeps ordinary high-CPU helpers and never exposes process arguments', () => {
   const remote = parseRemoteMetrics(FIXTURE.replace(
     /^procs=.*$/m,
-    'procs=1 1.0 2.0 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome --type=renderer|2 2.0 1.0 /Applications/Foo.app/Contents/MacOS/Foo -p secret|3 3.0 1.0 sort|4 4.0 0.5 ps|'
+    'procs=1 1 1.0 2.0 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome --type=renderer|2 1 2.0 1.0 /Applications/Foo.app/Contents/MacOS/Foo -p secret|3 1 3.0 1.0 sort|4 100 4.0 0.5 ps|5 4 5.0 0.5 sed|'
   ))
   assert.deepEqual(remote.processes.map((process) => process.command), ['Google', 'Foo', 'sort'])
   assert.ok(!remote.processes.some((process) => process.command.includes('secret')))

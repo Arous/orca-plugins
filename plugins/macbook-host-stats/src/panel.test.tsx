@@ -91,6 +91,34 @@ test('keeps a successful sample when refresh RPC fails', async () => {
   }
 })
 
+test('does not apply a failure from a superseded worker', async () => {
+  const host = mockHost({
+    requests: {
+      'stats.get': readyState,
+      'stats.refresh': () => new Promise<HostState>((_resolve, reject) => {
+        setTimeout(() => reject(hostError('action_failed', 'refresh failed')), 0)
+      })
+    }
+  })
+  const view = await mount(panel, { host })
+  try {
+    const pressed = view.press({ text: '새로고침' })
+    await view.post('stats.changed', {
+      ...readyState,
+      instanceId: 'replacement-worker',
+      revision: 1,
+      status: 'loading',
+      sample: null,
+      refreshing: true
+    })
+    await pressed
+    const tree = JSON.stringify(view.tree())
+    assert.ok(!tree.includes('자원을 새로고침하지 못했습니다.'), tree)
+  } finally {
+    await view.unmount()
+  }
+})
+
 test('marks a failed refresh stale even after a progress event', async () => {
   const host = mockHost({
     requests: {

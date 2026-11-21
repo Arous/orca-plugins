@@ -7,7 +7,7 @@ import { createRuntime } from './worker'
 
 type StatusCall = { id: string; text?: string; tone?: string; tooltip?: string; visible?: boolean }
 
-function fakeOrca(initial: Record<string, unknown> = {}) {
+function fakeOrca(initial: Record<string, unknown> = {}, failSettings = false) {
   const settings: Record<string, unknown> = { host: 'macbook2015', pollSeconds: 30, ...initial }
   const handlers = new Map<string, (input?: unknown) => unknown>()
   const posts: HostState[] = []
@@ -49,7 +49,10 @@ function fakeOrca(initial: Record<string, unknown> = {}) {
       onDidChange: () => disposable
     },
     settings: {
-      get: async (key?: string) => key === undefined ? { ...settings } : settings[key],
+      get: async (key?: string) => {
+        if (failSettings) throw new Error('settings unavailable')
+        return key === undefined ? { ...settings } : settings[key]
+      },
       set: async (key: string, value: unknown) => {
         settings[key] = value
       },
@@ -130,6 +133,28 @@ test('reports an error when no sample has ever succeeded', async () => {
     assert.equal(state.status, 'error')
     assert.equal(state.error, 'SSH 응답 시간이 초과되었습니다.')
     assert.equal(fake.status.at(-1)?.text, 'MBP 연결 안 됨')
+    assert.equal(fake.status.at(-1)?.tone, 'danger')
+  } finally {
+    runtime.stop()
+  }
+})
+
+test('does not fall back to the default host when settings fail', async () => {
+  const fake = fakeOrca({}, true)
+  let called = false
+  const runtime = createRuntime(fake.orca, {
+    collect: async () => {
+      called = true
+      return remoteMetrics
+    },
+    now: () => 1_000_000
+  })
+  await runtime.start()
+  try {
+    const state = runtime.state()
+    assert.equal(state.status, 'error')
+    assert.equal(state.error, '플러그인 설정을 읽지 못했습니다.')
+    assert.equal(called, false)
     assert.equal(fake.status.at(-1)?.tone, 'danger')
   } finally {
     runtime.stop()

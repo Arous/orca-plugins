@@ -49,7 +49,7 @@ function MetricCard(props: { title: string; percent: number; items: MetricItem[]
 }
 
 /** A slow response must not overwrite a newer worker event. Events may replace a worker. */
-function apply(next: HostState, requestInstance?: string, requestEventRevision?: number): void {
+function apply(next: HostState, requestEventRevision?: number): void {
   const current = read(state)
   if (current && next.instanceId !== current.instanceId && requestEventRevision !== undefined &&
       eventRevision !== requestEventRevision) return
@@ -64,9 +64,8 @@ export function setup(ctx: PanelContext): void {
     apply(next)
   }))
   const requestRevision = eventRevision
-  const requestInstance = read(state)?.instanceId
   void plugin.request('stats.get').then((next) => {
-    if (!ctx.signal.aborted && eventRevision === requestRevision) apply(next, requestInstance)
+    if (!ctx.signal.aborted && eventRevision === requestRevision) apply(next)
   }).catch(() => {
     if (!ctx.signal.aborted && eventRevision === requestRevision && !read(state)?.sample) {
       set(failure, '플러그인 워커에 연결하지 못했습니다.')
@@ -82,9 +81,12 @@ async function refresh(): Promise<void> {
   const requestEventRevision = eventRevision
   set(busy, true)
   try {
-    apply(await plugin.request('stats.refresh'), requestInstance, requestEventRevision)
+    apply(await plugin.request('stats.refresh'), requestEventRevision)
   } catch {
     const current = read(state)
+    const superseded = current?.instanceId !== undefined && current.instanceId !== requestInstance &&
+      (requestInstance !== undefined || eventRevision !== requestEventRevision)
+    if (superseded) return
     const newerCompleted = current?.sample !== null && current?.sample !== undefined &&
       current?.refreshing === false && (
         current.instanceId !== requestInstance || current.revision > beforeRevision

@@ -50,10 +50,9 @@ function initialState(host: string, instanceId: string): HostState {
 }
 
 async function readSettings(orca: OrcaWorkerApi): Promise<RuntimeSettings> {
-  const [hostValue, pollValue] = await Promise.all([
-    orca.settings.get('host'),
-    orca.settings.get('pollSeconds')
-  ])
+  const values = await orca.settings.get()
+  const hostValue = values.host
+  const pollValue = values.pollSeconds
   const host = typeof hostValue === 'string' && hostValue.trim() ? hostValue.trim() : DEFAULT_HOST
   const candidate = typeof pollValue === 'number' && Number.isFinite(pollValue)
     ? Math.round(pollValue)
@@ -95,6 +94,7 @@ export function createRuntime(orca: OrcaWorkerApi, deps: RuntimeDeps = {}): Host
   let controller: AbortController | null = null
   let runId = 0
   let stopped = false
+  let settingsReady = false
   let failures = 0
 
   function publish(): void {
@@ -121,6 +121,16 @@ export function createRuntime(orca: OrcaWorkerApi, deps: RuntimeDeps = {}): Host
 
   function refresh(): Promise<HostState> {
     if (stopped) return Promise.resolve(state)
+    if (!settingsReady) {
+      state = {
+        ...initialState(DEFAULT_HOST, instanceId),
+        revision: ++revision,
+        status: 'error',
+        error: '플러그인 설정을 읽지 못했습니다.'
+      }
+      publish()
+      return Promise.resolve(state)
+    }
     if (inFlight) return inFlight
 
     clearTimeout(timer)
@@ -186,8 +196,22 @@ export function createRuntime(orca: OrcaWorkerApi, deps: RuntimeDeps = {}): Host
 
   async function reloadSettings(): Promise<void> {
     if (stopped) return
-    const next = await readSettings(orca)
+    let next: RuntimeSettings
+    try {
+      next = await readSettings(orca)
+    } catch {
+      state = {
+        ...state,
+        revision: ++revision,
+        status: state.sample ? 'stale' : 'error',
+        error: '플러그인 설정을 읽지 못했습니다.',
+        refreshing: false
+      }
+      publish()
+      return
+    }
     if (stopped) return
+    settingsReady = true
     const hostChanged = next.host !== settings.host
     const intervalChanged = next.pollSeconds !== settings.pollSeconds
     settings = next
@@ -212,12 +236,6 @@ export function createRuntime(orca: OrcaWorkerApi, deps: RuntimeDeps = {}): Host
 
   async function start(): Promise<void> {
     stopped = false
-    try {
-      settings = await readSettings(orca)
-    } catch {
-      orca.log('MacBook Host Stats: settings read failed; using defaults')
-    }
-    state = { ...state, host: settings.host }
     disposables.push(orca.panels.handle('stats.get', () => state))
     disposables.push(orca.panels.handle('stats.refresh', () => refresh()))
     disposables.push(orca.commands.register('refresh', async () => {
@@ -227,6 +245,20 @@ export function createRuntime(orca: OrcaWorkerApi, deps: RuntimeDeps = {}): Host
     disposables.push(orca.settings.onDidChange(() => {
       void reloadSettings().catch(() => orca.log('MacBook Host Stats: settings reload failed'))
     }))
+    try {
+      settings = await readSettings(orca)
+      settingsReady = true
+    } catch {
+      state = {
+        ...initialState(DEFAULT_HOST, instanceId),
+        revision: ++revision,
+        status: 'error',
+        error: '플러그인 설정을 읽지 못했습니다.'
+      }
+      publish()
+      return
+    }
+    state = { ...state, host: settings.host }
     publish()
     void refresh()
   }
