@@ -98,6 +98,7 @@ export function createRuntime(orca: OrcaWorkerApi, deps: RuntimeDeps = {}): Host
   let failures = 0
 
   function publish(): void {
+    if (stopped) return
     orca.panels.post('stats.changed', state)
     void orca.host.call('statusBar.update', {
       id: 'host-stats',
@@ -119,19 +120,33 @@ export function createRuntime(orca: OrcaWorkerApi, deps: RuntimeDeps = {}): Host
     timer.unref()
   }
 
-  function refresh(): Promise<HostState> {
-    if (stopped) return Promise.resolve(state)
-    if (!settingsReady) {
-      state = {
-        ...initialState(DEFAULT_HOST, instanceId),
-        revision: ++revision,
-        status: 'error',
-        error: '플러그인 설정을 읽지 못했습니다.'
-      }
-      publish()
-      return Promise.resolve(state)
+  function settingsFailure(keepSample: boolean): HostState {
+    const base = keepSample && state.sample ? state : initialState(DEFAULT_HOST, instanceId)
+    state = {
+      ...base,
+      revision: ++revision,
+      status: keepSample && base.sample ? 'stale' : 'error',
+      error: '플러그인 설정을 읽지 못했습니다.',
+      refreshing: false
     }
+    return state
+  }
+
+  async function refresh(): Promise<HostState> {
+    if (stopped) return state
     if (inFlight) return inFlight
+    if (!settingsReady) {
+      try {
+        settings = await readSettings(orca)
+      } catch {
+        if (stopped) return state
+        settingsFailure(false)
+        publish()
+        return state
+      }
+      if (stopped) return state
+      settingsReady = true
+    }
 
     clearTimeout(timer)
     const id = ++runId
@@ -200,13 +215,8 @@ export function createRuntime(orca: OrcaWorkerApi, deps: RuntimeDeps = {}): Host
     try {
       next = await readSettings(orca)
     } catch {
-      state = {
-        ...state,
-        revision: ++revision,
-        status: state.sample ? 'stale' : 'error',
-        error: '플러그인 설정을 읽지 못했습니다.',
-        refreshing: false
-      }
+      if (stopped) return
+      settingsFailure(Boolean(state.sample))
       publish()
       return
     }
@@ -249,15 +259,12 @@ export function createRuntime(orca: OrcaWorkerApi, deps: RuntimeDeps = {}): Host
       settings = await readSettings(orca)
       settingsReady = true
     } catch {
-      state = {
-        ...initialState(DEFAULT_HOST, instanceId),
-        revision: ++revision,
-        status: 'error',
-        error: '플러그인 설정을 읽지 못했습니다.'
-      }
+      if (stopped) return
+      settingsFailure(false)
       publish()
       return
     }
+    if (stopped) return
     state = { ...state, host: settings.host }
     publish()
     void refresh()

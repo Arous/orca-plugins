@@ -9,6 +9,7 @@ type StatusCall = { id: string; text?: string; tone?: string; tooltip?: string; 
 
 function fakeOrca(initial: Record<string, unknown> = {}, failSettings = false) {
   const settings: Record<string, unknown> = { host: 'macbook2015', pollSeconds: 30, ...initial }
+  let settingsUnavailable = failSettings
   const handlers = new Map<string, (input?: unknown) => unknown>()
   const posts: HostState[] = []
   const status: StatusCall[] = []
@@ -50,7 +51,7 @@ function fakeOrca(initial: Record<string, unknown> = {}, failSettings = false) {
     },
     settings: {
       get: async (key?: string) => {
-        if (failSettings) throw new Error('settings unavailable')
+        if (settingsUnavailable) throw new Error('settings unavailable')
         return key === undefined ? { ...settings } : settings[key]
       },
       set: async (key: string, value: unknown) => {
@@ -70,7 +71,10 @@ function fakeOrca(initial: Record<string, unknown> = {}, failSettings = false) {
     log: (message: string) => logs.push(message)
   } as unknown as OrcaWorkerApi
 
-  return { orca, settings, handlers, posts, status, logs, changes }
+  return {
+    orca, settings, handlers, posts, status, logs, changes,
+    setSettingsFailure: (value: boolean) => { settingsUnavailable = value }
+  }
 }
 
 test('publishes a ready sample and updates the status bar', async () => {
@@ -156,6 +160,28 @@ test('does not fall back to the default host when settings fail', async () => {
     assert.equal(state.error, '플러그인 설정을 읽지 못했습니다.')
     assert.equal(called, false)
     assert.equal(fake.status.at(-1)?.tone, 'danger')
+  } finally {
+    runtime.stop()
+  }
+})
+
+test('retries settings before collecting after a transient failure', async () => {
+  const fake = fakeOrca({}, true)
+  let called = 0
+  const runtime = createRuntime(fake.orca, {
+    collect: async () => {
+      called += 1
+      return remoteMetrics
+    },
+    now: () => 1_000_000
+  })
+  await runtime.start()
+  try {
+    assert.equal(runtime.state().status, 'error')
+    fake.setSettingsFailure(false)
+    const state = await runtime.refresh()
+    assert.equal(state.status, 'ready')
+    assert.equal(called, 1)
   } finally {
     runtime.stop()
   }

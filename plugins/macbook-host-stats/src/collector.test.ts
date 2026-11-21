@@ -100,6 +100,14 @@ test('keeps ordinary high-CPU helpers and never exposes process arguments', () =
   assert.ok(!remote.processes.some((process) => process.command.includes('secret')))
 })
 
+test('rejects a remote reading without swap output', () => {
+  const broken = FIXTURE.replace(/^swap=.*$/m, 'swap=')
+  assert.throws(
+    () => parseRemoteMetrics(broken),
+    (error: unknown) => error instanceof CollectorError && error.code === 'parse-failed'
+  )
+})
+
 test('marks missing network counters as unavailable, not zero', () => {
   const remote = parseRemoteMetrics(FIXTURE.replace(/^net=.*$/m, 'net='))
   assert.equal(remote.network.rxBytes, null)

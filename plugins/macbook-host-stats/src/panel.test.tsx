@@ -141,7 +141,7 @@ test('marks a failed refresh stale even after a progress event', async () => {
   }
 })
 
-test('does not mark a newer successful event as failed', async () => {
+test('keeps a completed stale event instead of a generic refresh failure', async () => {
   const host = mockHost({
     requests: {
       'stats.get': readyState,

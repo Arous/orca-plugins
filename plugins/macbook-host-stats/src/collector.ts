@@ -28,8 +28,8 @@ export type RemoteMetrics = {
     compressedPages: number
   }
   swap: {
-    totalBytes: number | null
-    usedBytes: number | null
+    totalBytes: number
+    usedBytes: number
   }
   disk: {
     totalBytes: number
@@ -85,13 +85,15 @@ function bytesInUnit(value: string, unit: string): number | null {
   return amount * multiplier
 }
 
-function parseSwap(value: string | undefined): { totalBytes: number | null; usedBytes: number | null } {
+function parseSwap(value: string | undefined): { totalBytes: number; usedBytes: number } {
   const total = /total\s*=\s*([\d.]+)\s*([KMG])/i.exec(value ?? '')
   const used = /used\s*=\s*([\d.]+)\s*([KMG])/i.exec(value ?? '')
-  return {
-    totalBytes: total ? bytesInUnit(total[1], total[2]) : null,
-    usedBytes: used ? bytesInUnit(used[1], used[2]) : null
+  const totalBytes = total ? bytesInUnit(total[1], total[2]) : null
+  const usedBytes = used ? bytesInUnit(used[1], used[2]) : null
+  if (totalBytes === null || usedBytes === null) {
+    throw new CollectorError('parse-failed', 'invalid swap')
   }
+  return { totalBytes, usedBytes }
 }
 
 function parseBattery(raw: string | undefined): BatterySample | null {
