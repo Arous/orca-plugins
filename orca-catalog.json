@@ -1,0 +1,90 @@
+{
+  "$schema": "https://raw.githubusercontent.com/stablyai/orca/main/docs/schemas/plugins/orca-catalog.v2.schema.json",
+  "catalogVersion": 2,
+  "name": "Arous Orca Plugins",
+  "owner": "Arous",
+  "plugins": [
+    {
+      "id": "arous.opengateway-usage",
+      "source": {
+        "kind": "git",
+        "url": "https://github.com/Arous/orca-plugins.git",
+        "ref": "master"
+      },
+      "description": "OpenGateway 이번 달 사용액과 현재 USD 잔액을 Orca 하단에 표시합니다.",
+      "categories": [
+        "status-bar",
+        "usage"
+      ],
+      "releases": [
+        {
+          "version": "0.2.0",
+          "commit": "180acc8800d77ee7c3d0c201178d4d25714a5e51",
+          "contentHash": "a47a15592d877f72a68d00002a0398cb1b24dc70a53bddc65e1a4fe5d6402393",
+          "execution": "trusted-worker",
+          "minimumOrca": "1.4.248",
+          "name": "OpenGateway Usage",
+          "contributes": [
+            {
+              "kind": "panels",
+              "name": "OpenGateway Usage"
+            },
+            {
+              "kind": "commands",
+              "name": "OpenGateway 사용량 새로고침"
+            },
+            {
+              "kind": "statusBarItems",
+              "name": "OG 연결 중"
+            }
+          ],
+          "capabilities": [
+            "storage:own"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "arous.macbook-host-stats",
+      "source": {
+        "kind": "git",
+        "url": "https://github.com/Arous/orca-plugins.git",
+        "ref": "master",
+        "path": "plugins/macbook-host-stats"
+      },
+      "description": "SSH로 MacBook의 CPU, 메모리, 디스크, 네트워크 상태를 읽어 Orca 패널과 하단 상태 표시줄에 표시합니다.",
+      "categories": [
+        "panels",
+        "system",
+        "ssh"
+      ],
+      "releases": [
+        {
+          "version": "0.1.1",
+          "commit": "180acc8800d77ee7c3d0c201178d4d25714a5e51",
+          "contentHash": "d0053d69dbc2e19d5440225e63d92b2b556a5837264775933aa14ec8574effe3",
+          "execution": "trusted-worker",
+          "minimumOrca": "1.4.248",
+          "name": "MacBook Host Stats",
+          "contributes": [
+            {
+              "kind": "panels",
+              "name": "MacBook Host Stats"
+            },
+            {
+              "kind": "commands",
+              "name": "MacBook 자원 새로고침"
+            },
+            {
+              "kind": "statusBarItems",
+              "name": "MBP 확인 중"
+            }
+          ],
+          "capabilities": [
+            "settings:own"
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -162,7 +162,7 @@ export default function Panel() {
 
       {sample ? (
         <>
-          <Grid columns={2} gap="sm">
+          <Grid columns={1} gap="sm">
             <MetricCard
               title="CPU"
               percent={sample.cpu.usedPercent}
