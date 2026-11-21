@@ -167,7 +167,7 @@ export default function Panel() {
               title="CPU"
               percent={sample.cpu.usedPercent}
               items={[
-                { label: 'Load 1/5/15m', value: `${sample.cpu.load1.toFixed(2)} / ${sample.cpu.load5.toFixed(2)} / ${sample.cpu.load15.toFixed(2)}` },
+                { label: 'Load', value: `${sample.cpu.load1.toFixed(2)}/${sample.cpu.load5.toFixed(2)}/${sample.cpu.load15.toFixed(2)}` },
                 { label: 'User / Sys', value: `${formatPercent(sample.cpu.userPercent)} / ${formatPercent(sample.cpu.sysPercent)}` },
                 { label: '코어', value: sample.cpu.cores ?? '—' }
               ]}
@@ -179,7 +179,7 @@ export default function Panel() {
               items={[
                 { label: '사용 / 전체', value: `${formatBytes(sample.memory.usedBytes)} / ${formatBytes(sample.memory.totalBytes)}` },
                 { label: '여유', value: formatBytes(sample.memory.availableBytes) },
-                { label: 'Wired / 압축', value: `${formatBytes(sample.memory.wiredBytes)} / ${formatBytes(sample.memory.compressedBytes)}` },
+                { label: 'Wired/압축', value: `${formatBytes(sample.memory.wiredBytes)} / ${formatBytes(sample.memory.compressedBytes)}` },
                 { label: 'Swap', value: `${formatBytes(sample.memory.swapUsedBytes)} / ${formatBytes(sample.memory.swapTotalBytes)}` }
               ]}
             />
@@ -190,7 +190,7 @@ export default function Panel() {
               items={[
                 { label: '사용 / 전체', value: `${formatBytes(sample.disk.usedBytes)} / ${formatBytes(sample.disk.totalBytes)}` },
                 { label: '남음', value: formatBytes(sample.disk.availableBytes) },
-                { label: '볼륨', value: '/System/Volumes/Data', code: true }
+                { label: '볼륨', value: 'Data' }
               ]}
             />
 
@@ -200,7 +200,7 @@ export default function Panel() {
                   { label: '인터페이스', value: sample.network.interface ?? '없음', code: true },
                   { label: '다운로드', value: formatRate(sample.network.rxPerSecond) },
                   { label: '업로드', value: formatRate(sample.network.txPerSecond) },
-                  { label: '누적 RX / TX', value: `${formatBytes(sample.network.rxBytes)} / ${formatBytes(sample.network.txBytes)}` }
+                  { label: '누적', value: `${formatBytes(sample.network.rxBytes)} / ${formatBytes(sample.network.txBytes)}` }
                 ]}
               />
             </Card>
@@ -212,7 +212,7 @@ export default function Panel() {
                 { label: '모델', value: sample.model ?? '—' },
                 { label: '가동 시간', value: formatDuration(sample.uptimeSeconds) },
                 { label: '배터리', value: batteryText(sample) },
-                { label: '수집 시각', value: new Date(sample.at).toLocaleString('ko-KR') }
+                { label: '수집 시각', value: new Date(sample.at).toLocaleTimeString('ko-KR', { hour12: false }) }
               ]}
             />
           </Card>
