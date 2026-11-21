@@ -1,6 +1,18 @@
 # OpenGateway Usage
 
-Orca 하단에 **이번 달 사용액 / 현재 USD 잔액 · 사용 비중 게이지**를 표시하는 플러그인입니다. 기존 구독 서비스 위젯을 수정하지 않고 공식 `statusBarItems` 확장 지점에 한 항목을 추가합니다. 오른쪽 **OpenGateway Usage** 패널과 툴팁에서는 오늘 사용액, 상세 금액, 조회 시각도 확인합니다. 이 저장소의 루트가 설치 가능한 단일 플러그인입니다.
+Orca 하단에 **이번 달 사용액 / 현재 USD 잔액 · 사용 비중 게이지**를 표시하는 플러그인입니다. 기존 구독 서비스 위젯을 수정하지 않고 공식 `statusBarItems` 확장 지점에 한 항목을 추가합니다. 오른쪽 **OpenGateway Usage** 패널과 툴팁에서는 오늘 사용액, 상세 금액, 조회 시각도 확인합니다. 이 저장소의 루트는 OpenGateway Usage 플러그인이고, `plugins/macbook-host-stats`에 SSH 기반 MacBook 자원 모니터가 함께 있습니다.
+
+## 함께 제공하는 플러그인
+
+### MacBook Host Stats
+
+`plugins/macbook-host-stats`는 SSH로 MacBook의 CPU, 메모리, 디스크, 네트워크 상태를 읽어 패널과 하단 상태 표시줄에 보여주는 별도 플러그인입니다. Orca 기본 기능에는 원격 자원 메트릭이 없으므로 `trusted-worker`가 시스템 `ssh`를 실행합니다. 설치:
+
+```sh
+orca plugin install https://github.com/Arous/orca-plugins/tree/master/plugins/macbook-host-stats
+```
+
+자세한 설정, 권한 경계, 지원하지 않는 root 전용 메트릭은 [plugins/macbook-host-stats/README.md](plugins/macbook-host-stats/README.md)를 참고하세요.
 
 ## 화면
 
