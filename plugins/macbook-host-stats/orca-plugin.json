@@ -1,0 +1,64 @@
+{
+  "manifestVersion": 2,
+  "id": "macbook-host-stats",
+  "name": "MacBook Host Stats",
+  "version": "0.1.0",
+  "description": "SSH로 MacBook의 CPU, 메모리, 디스크, 네트워크 상태를 Orca 패널과 상태 표시줄에 표시합니다.",
+  "engines": {
+    "orca": ">=1.4.248"
+  },
+  "execution": "trusted-worker",
+  "pluginApi": 1,
+  "main": "src/worker.ts",
+  "contributes": {
+    "panels": [
+      {
+        "id": "host-stats",
+        "title": "MacBook Host Stats",
+        "icon": "activity",
+        "entry": "src/panel.tsx",
+        "ui": "components"
+      }
+    ],
+    "commands": [
+      {
+        "id": "refresh",
+        "title": "MacBook 자원 새로고침",
+        "when": "global"
+      }
+    ],
+    "statusBarItems": [
+      {
+        "id": "host-stats",
+        "text": "MBP 확인 중",
+        "icon": "activity",
+        "tooltip": "macbook2015 · CPU / 메모리 / 디스크 / 네트워크",
+        "command": "refresh"
+      }
+    ],
+    "settings": [
+      {
+        "key": "host",
+        "title": "SSH 호스트",
+        "description": "~/.ssh/config에 정의된 호스트 별칭입니다. 셸 메타문자와 공백은 허용하지 않습니다.",
+        "type": "string",
+        "default": "macbook2015",
+        "maxLength": 253
+      },
+      {
+        "key": "pollSeconds",
+        "title": "갱신 주기(초)",
+        "description": "상태 표시줄을 갱신하는 간격입니다. 15초보다 짧게 설정할 수 없습니다.",
+        "type": "integer",
+        "default": 30,
+        "minimum": 15,
+        "maximum": 300
+      }
+    ]
+  },
+  "capabilities": [
+    {
+      "kind": "settings:own"
+    }
+  ]
+}
