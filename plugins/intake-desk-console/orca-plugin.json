@@ -1,0 +1,75 @@
+{
+  "manifestVersion": 2,
+  "pluginApi": 1,
+  "id": "intake-desk-console",
+  "name": "Intake Desk Console",
+  "version": "0.1.0",
+  "description": "Orca 사이드바에서 Intake Desk 구독 Quota·종량제 비용, 승인 대기 큐, 도메인별 병렬 워커를 관제합니다.",
+  "engines": {
+    "orca": ">=1.4.259"
+  },
+  "execution": "trusted-worker",
+  "main": "src/worker.ts",
+  "contributes": {
+    "panels": [
+      {
+        "id": "console",
+        "title": "Intake Desk",
+        "icon": "bot",
+        "entry": "src/panel.tsx",
+        "ui": "components"
+      }
+    ],
+    "commands": [
+      {
+        "id": "refresh",
+        "title": "Intake Desk 상태 새로고침",
+        "when": "global"
+      }
+    ],
+    "statusBarItems": [
+      {
+        "id": "summary",
+        "text": "Desk 확인 중",
+        "icon": "gauge",
+        "tooltip": "Intake Desk 대기 승인 및 병렬 워커 요약",
+        "command": "refresh"
+      }
+    ],
+    "events": [
+      { "on": "agent.status.changed" },
+      { "on": "workspace.created" },
+      { "on": "workspace.removed" },
+      { "on": "workspace.changed" }
+    ],
+    "settings": [
+      {
+        "key": "advisorScriptPath",
+        "title": "Route Advisor 스크립트 경로",
+        "description": "route-advisor.mjs --json 실행 경로입니다.",
+        "type": "string",
+        "default": "~/.orca/bots/intake-desk/scripts/route-advisor.mjs",
+        "maxLength": 512
+      },
+      {
+        "key": "pollSeconds",
+        "title": "갱신 주기(초)",
+        "description": "Quota 및 워커 상태를 갱신하는 간격입니다. 15–300초 사이로 설정합니다.",
+        "type": "integer",
+        "default": 30,
+        "minimum": 15,
+        "maximum": 300
+      }
+    ]
+  },
+  "capabilities": [
+    { "kind": "workspace:read" },
+    { "kind": "workspace:write" },
+    { "kind": "agent:read" },
+    { "kind": "agent:launch" },
+    { "kind": "terminal:send" },
+    { "kind": "notifications:show" },
+    { "kind": "storage:own" },
+    { "kind": "settings:own" }
+  ]
+}
