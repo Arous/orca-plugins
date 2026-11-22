@@ -102,9 +102,9 @@
       ],
       "releases": [
         {
-          "version": "0.1.0",
-          "commit": "e91c4ad18854950fed46a8b2620c0ce5bdbced46",
-          "contentHash": "f5ce5f3f5abc15fb262565400b338ffef44b6c6a942232071be493fdf43822f6",
+          "version": "0.1.1",
+          "commit": "d2fc919113a9b400d80b84b1c967dc0fb527ac20",
+          "contentHash": "23d1f6dd05186cd4e20822558bb890b766a3ff03c8473f2fdb604b4800594308",
           "execution": "trusted-worker",
           "minimumOrca": "1.4.259",
           "name": "Intake Desk Console",
