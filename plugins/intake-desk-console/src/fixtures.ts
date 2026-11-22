@@ -351,6 +351,7 @@ export const readyConsoleState: ConsoleState = {
   revision: 1,
   advisorScriptPath: DEFAULT_ADVISOR_SCRIPT_PATH,
   pendingQueuePath: DEFAULT_PENDING_QUEUE_PATH,
+  showQuotaSection: true,
   advisor: liveAdvisorPayload,
   pending: samplePendingTasks,
   workers: sampleWorkers,
@@ -399,6 +400,7 @@ export const errorConsoleState: ConsoleState = {
   revision: 6,
   advisorScriptPath: DEFAULT_ADVISOR_SCRIPT_PATH,
   pendingQueuePath: DEFAULT_PENDING_QUEUE_PATH,
+  showQuotaSection: true,
   advisor: null,
   pending: [],
   workers: [],
@@ -407,4 +409,10 @@ export const errorConsoleState: ConsoleState = {
   lastAttemptAt: 1_795_280_000_000,
   lastSuccessAt: null,
   refreshing: false
+}
+
+export const quotaHiddenConsoleState: ConsoleState = {
+  ...readyConsoleState,
+  revision: 7,
+  showQuotaSection: false
 }

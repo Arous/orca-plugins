@@ -3,6 +3,7 @@ import { buildA2UISurfacePayload } from './a2ui'
 import {
   errorConsoleState,
   fallbackConsoleState,
+  quotaHiddenConsoleState,
   readyConsoleState,
   unavailableQuotaConsoleState
 } from './fixtures'
@@ -30,6 +31,12 @@ export default defineCheck({
     requests: {
       'console.get': errorConsoleState,
       'console.a2uiSnapshot': buildA2UISurfacePayload(errorConsoleState)
+    }
+  },
+  quotaHidden: {
+    requests: {
+      'console.get': quotaHiddenConsoleState,
+      'console.a2uiSnapshot': buildA2UISurfacePayload(quotaHiddenConsoleState)
     }
   }
 })

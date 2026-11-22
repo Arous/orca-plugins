@@ -200,3 +200,52 @@ test('renders fallback, unmapped provider, D-3, stale, and error states without 
     await view.unmount()
   }
 })
+
+test('hides and restores subscription quota & PAYG section via console.setShowQuota', async () => {
+  const calls: Array<{ name: string; input: unknown }> = []
+  let current: ConsoleState = structuredClone(readyConsoleState)
+
+  const host = mockHost({
+    requests: {
+      'console.get': () => current,
+      'console.setShowQuota': (input) => {
+        calls.push({ name: 'console.setShowQuota', input })
+        current = {
+          ...current,
+          revision: current.revision + 1,
+          showQuotaSection: input.visible
+        }
+        return current
+      }
+    }
+  })
+
+  const view = await mount(panel, { host })
+  try {
+    const initialTree = JSON.stringify(view.tree())
+    assert.ok(initialTree.includes('구독 Quota · 종량제'))
+    assert.ok(initialTree.includes('Quota 숨기기'))
+
+    await view.press({ text: 'Quota 숨기기' })
+    assert.deepEqual(calls[0], { name: 'console.setShowQuota', input: { visible: false } })
+    const hiddenTree = JSON.stringify(view.tree())
+    assert.equal(hiddenTree.includes('구독 Quota · 종량제'), false)
+    assert.equal(hiddenTree.includes('Codex ProMax'), false)
+    assert.equal(hiddenTree.includes('OpenGateway (종량제)'), false)
+    assert.ok(hiddenTree.includes('승인 대기 큐'))
+    assert.ok(hiddenTree.includes('도메인 병렬 워커'))
+    assert.ok(hiddenTree.includes('Quota 보기'))
+    assertNoHintCopy(hiddenTree, 'quotaHidden')
+
+    await view.press({ text: 'Quota 보기' })
+    assert.deepEqual(calls[1], { name: 'console.setShowQuota', input: { visible: true } })
+    const restoredTree = JSON.stringify(view.tree())
+    assert.ok(restoredTree.includes('구독 Quota · 종량제'))
+    assert.ok(restoredTree.includes('Quota 숨기기'))
+    assertNoHintCopy(restoredTree, 'quotaRestored')
+    assert.deepEqual(view.errors, [])
+    assert.deepEqual(view.refusals, [])
+  } finally {
+    await view.unmount()
+  }
+})

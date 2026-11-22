@@ -1,6 +1,11 @@
 import { assert, test } from 'orca/testing'
 import { buildA2UISurfacePayload } from './a2ui'
-import { errorConsoleState, fallbackConsoleState, readyConsoleState } from './fixtures'
+import {
+  errorConsoleState,
+  fallbackConsoleState,
+  quotaHiddenConsoleState,
+  readyConsoleState
+} from './fixtures'
 import { A2UI_CATALOG_ID, A2UI_SURFACE_ID } from './protocol'
 
 test('serializes ConsoleState into A2UI v1.0 createSurface, updateComponents, and updateDataModel', () => {
@@ -50,4 +55,20 @@ test('reflects fallbackActive and error states accurately in A2UI data model', (
   assert.equal(errorData.updateDataModel.value.status, 'error')
   assert.equal(errorData.updateDataModel.value.pendingCount, 0)
   assert.equal(errorData.updateDataModel.value.activeWorkerCount, 0)
+})
+
+test('omits quota and PAYG components when showQuotaSection is false', () => {
+  const hiddenMessages = buildA2UISurfacePayload(quotaHiddenConsoleState)
+  const componentsMsg = hiddenMessages[1]
+  const dataMsg = hiddenMessages[2]
+  assert.ok('updateComponents' in componentsMsg)
+  assert.ok('updateDataModel' in dataMsg)
+
+  const componentIds = new Set(componentsMsg.updateComponents.components.map((c) => c.id))
+  assert.equal(componentIds.has('quota-section'), false)
+  assert.equal(componentIds.has('quota-codex'), false)
+  assert.equal(componentIds.has('payg-opengateway'), false)
+  assert.equal(componentIds.has('pending-section'), true)
+  assert.equal(componentIds.has('worker-section'), true)
+  assert.equal(dataMsg.updateDataModel.value.showQuotaSection, false)
 })
