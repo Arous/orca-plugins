@@ -1,0 +1,223 @@
+import { formatPaygSummary, formatQuotaSummary, workerStatusLabel } from './format'
+import {
+  A2UI_CATALOG_ID,
+  A2UI_SURFACE_ID,
+  type A2UIComponent,
+  type A2UIMessage,
+  type ConsoleState
+} from './protocol'
+
+/**
+ * Pure serializer converting ConsoleState into an A2UI v1.0 message sequence:
+ * createSurface -> updateComponents -> updateDataModel.
+ */
+export function buildA2UISurfacePayload(state: ConsoleState): A2UIMessage[] {
+  const components: A2UIComponent[] = []
+  const quotaIds: string[] = []
+  const pendingIds: string[] = []
+  const workerIds: string[] = []
+
+  const quotas = state.advisor?.quotas ?? []
+  for (const quota of quotas) {
+    const id = `quota-${quota.id}`
+    quotaIds.push(id)
+    components.push({
+      id,
+      component: {
+        Card: {
+          title: quota.label,
+          subtitle: formatQuotaSummary(quota),
+          meta: quota.resetLabel ?? ''
+        }
+      }
+    })
+  }
+
+  const paygEntries = Object.entries(state.advisor?.payg ?? {})
+  for (const [key, entry] of paygEntries) {
+    const id = `payg-${key}`
+    quotaIds.push(id)
+    components.push({
+      id,
+      component: {
+        Card: {
+          title: entry.label,
+          subtitle: formatPaygSummary(entry),
+          meta: entry.estimateKind
+        }
+      }
+    })
+  }
+
+  for (const task of state.pending) {
+    const id = `pending-${task.taskId}`
+    pendingIds.push(id)
+    components.push({
+      id,
+      component: {
+        Card: {
+          title: `${task.taskId} · ${task.title}`,
+          subtitle: `${task.domain} · ${task.selectedModelId}`,
+          actions: [
+            { label: '승인', action: { name: 'approveTask', context: { taskId: task.taskId } } },
+            { label: '직접 열기', action: { name: 'handoffTask', context: { taskId: task.taskId } } },
+            { label: '취소', action: { name: 'cancelTask', context: { taskId: task.taskId } } }
+          ]
+        }
+      }
+    })
+  }
+
+  for (const worker of state.workers) {
+    const id = `worker-${worker.id}`
+    workerIds.push(id)
+    components.push({
+      id,
+      component: {
+        Card: {
+          title: worker.name,
+          subtitle: `${worker.domain} · ${workerStatusLabel(worker.status)}`,
+          actions: worker.workspaceId
+            ? [
+                {
+                  label: '채팅 열기',
+                  action: { name: 'openWorkspace', context: { workspaceId: worker.workspaceId } }
+                }
+              ]
+            : []
+        }
+      }
+    })
+  }
+
+  components.unshift(
+    {
+      id: 'root',
+      component: {
+        Column: {
+          children: { explicitList: ['header', 'quota-section', 'pending-section', 'worker-section'] }
+        }
+      }
+    },
+    {
+      id: 'header',
+      component: {
+        Row: {
+          children: { explicitList: ['header-title', 'header-refresh'] }
+        }
+      }
+    },
+    {
+      id: 'header-title',
+      component: {
+        Text: {
+          text: { path: '/deskModel' },
+          usageHint: 'h3'
+        }
+      }
+    },
+    {
+      id: 'header-refresh',
+      component: {
+        Button: {
+          label: '새로고침',
+          action: { name: 'refreshConsole' }
+        }
+      }
+    },
+    {
+      id: 'quota-section',
+      component: {
+        Column: {
+          children: { explicitList: quotaIds }
+        }
+      }
+    },
+    {
+      id: 'pending-section',
+      component: {
+        Column: {
+          children: { explicitList: pendingIds }
+        }
+      }
+    },
+    {
+      id: 'worker-section',
+      component: {
+        Column: {
+          children: { explicitList: workerIds }
+        }
+      }
+    }
+  )
+
+  const deskModel = state.advisor
+    ? `${state.advisor.deskModel.active} (${state.advisor.deskModel.effort})`
+    : '미연결'
+
+  return [
+    {
+      version: '1.0',
+      createSurface: {
+        surfaceId: A2UI_SURFACE_ID,
+        catalogId: A2UI_CATALOG_ID
+      }
+    },
+    {
+      version: '1.0',
+      updateComponents: {
+        surfaceId: A2UI_SURFACE_ID,
+        components
+      }
+    },
+    {
+      version: '1.0',
+      updateDataModel: {
+        surfaceId: A2UI_SURFACE_ID,
+        path: '/',
+        value: {
+          revision: state.revision,
+          status: state.status,
+          deskModel,
+          fallbackActive: state.advisor?.deskModel.fallbackActive ?? false,
+          quotas: quotas.map((q) => ({
+            id: q.id,
+            label: q.label,
+            status: q.status,
+            sessionUsedPct: q.sessionUsedPct,
+            weeklyUsedPct: q.weeklyUsedPct,
+            monthlyUsedPct: q.monthlyUsedPct,
+            paceRatio: q.paceRatio,
+            resetLabel: q.resetLabel,
+            burnDownBonus: q.burnDownBonus
+          })),
+          payg: paygEntries.map(([, entry]) => ({
+            provider: entry.provider,
+            label: entry.label,
+            last24hUsd: entry.last24hUsd,
+            last7dUsd: entry.last7dUsd
+          })),
+          unmappedActiveProviders: state.advisor?.unmappedActiveProviders ?? [],
+          pendingCount: state.pending.length,
+          activeWorkerCount: state.workers.length,
+          pending: state.pending.map((p) => ({
+            taskId: p.taskId,
+            domain: p.domain,
+            track: p.track,
+            modelId: p.selectedModelId,
+            title: p.title
+          })),
+          workers: state.workers.map((w) => ({
+            id: w.id,
+            taskId: w.taskId,
+            workspaceId: w.workspaceId,
+            domain: w.domain,
+            name: w.name,
+            status: w.status
+          })),
+          error: state.error
+        }
+      }
+    }
+  ]
+}
