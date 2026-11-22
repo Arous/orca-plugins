@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process'
-import { access } from 'node:fs/promises'
+import { access, mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { resolve } from 'node:path'
+import { dirname, resolve } from 'node:path'
 import type {
   AdvisorAlternative,
   AdvisorDeskModel,
@@ -12,6 +12,8 @@ import type {
   AdvisorQuotaStatus,
   AdvisorRecommendation,
   BillingType,
+  ModelOption,
+  PendingQueueFileItem,
   RecommendationTrack,
   WorktreeMode
 } from './protocol'
@@ -82,6 +84,7 @@ const KNOWN_QUOTA_STATUSES: ReadonlySet<AdvisorQuotaStatus> = new Set([
   'rate_limited',
   'exhausted',
   'expiring',
+  'expired',
   'unavailable',
   'unknown'
 ])
@@ -214,6 +217,7 @@ function parseRecommendation(raw: unknown): AdvisorRecommendation | null | undef
   if (!taskId || !routeId || !agent || !model) return undefined
   return {
     taskId,
+    domain: asNullableString(raw.domain),
     track: asRecommendationTrack(raw.track),
     worktreeMode: asWorktreeMode(raw.worktreeMode),
     worktree: asNullableString(raw.worktree),
@@ -443,5 +447,132 @@ export async function collectAdvisor(
       error: 'route-advisor 실행 중 예기치 않은 오류가 발생했습니다.',
       payload: null
     }
+  }
+}
+
+function parsePendingOptions(raw: unknown): ModelOption[] | undefined {
+  if (!Array.isArray(raw)) return undefined
+  const out: ModelOption[] = []
+  for (const entry of raw) {
+    if (!isRecord(entry)) continue
+    const modelId = asNullableString(entry.modelId)
+    const routeId = asNullableString(entry.routeId)
+    const agent = asNullableString(entry.agent)
+    const model = asNullableString(entry.model)
+    if (!modelId || !routeId || !agent || !model) continue
+    out.push({
+      modelId,
+      routeId,
+      shortAlias: asString(entry.shortAlias, agent),
+      agent,
+      model,
+      effort: asString(entry.effort, 'medium'),
+      billingType: asBillingType(entry.billingType),
+      label: asString(entry.label, `${agent} / ${model}`)
+    })
+  }
+  return out
+}
+
+export function parsePendingQueueFileItems(raw: unknown): PendingQueueFileItem[] {
+  let rawItems: unknown = raw
+  if (isRecord(raw)) {
+    if (raw.schemaVersion !== undefined && raw.schemaVersion !== 1) return []
+    rawItems = raw.items
+  }
+  if (!Array.isArray(rawItems)) return []
+
+  const items: PendingQueueFileItem[] = []
+  for (const entry of rawItems) {
+    if (!isRecord(entry)) continue
+    const taskId = asNullableString(entry.taskId)?.trim()
+    const domain = asNullableString(entry.domain)?.trim()
+    const worktreeName = asNullableString(entry.worktreeName)?.trim()
+    const title = asNullableString(entry.title)?.trim()
+    const spec = asNullableString(entry.spec)?.trim()
+    const agent = asNullableString(entry.agent)?.trim()
+    const model = asNullableString(entry.model)?.trim()
+    if (!taskId || !domain || !worktreeName || !title || !spec || !agent || !model) continue
+
+    items.push({
+      taskId,
+      domain,
+      projectId: asNullableString(entry.projectId),
+      workspaceId: asNullableString(entry.workspaceId),
+      track: asRecommendationTrack(entry.track),
+      worktreeMode: asWorktreeMode(entry.worktreeMode),
+      worktreeName,
+      title,
+      spec,
+      agent,
+      model,
+      effort: asString(entry.effort, 'medium'),
+      billingType: asBillingType(entry.billingType),
+      estimatedCostUsd: asNumber(entry.estimatedCostUsd, 0),
+      estimatedMinutes: asNumber(entry.estimatedMinutes, 15),
+      reason: asString(entry.reason),
+      oneLine: asString(entry.oneLine),
+      options: parsePendingOptions(entry.options),
+      createdAt: asNumber(entry.createdAt, 0)
+    })
+  }
+  return items
+}
+
+export async function readPendingQueueFile(queuePath: string): Promise<PendingQueueFileItem[]> {
+  const trimmed = queuePath.trim()
+  if (!trimmed) return []
+  const resolved = expandHomePath(trimmed)
+  try {
+    const text = await readFile(resolved, 'utf8')
+    return parsePendingQueueFileItems(JSON.parse(text))
+  } catch (error) {
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
+      return []
+    }
+    return []
+  }
+}
+
+export async function removePendingQueueItemFile(queuePath: string, taskId: string): Promise<void> {
+  const trimmed = queuePath.trim()
+  if (!trimmed) return
+  const resolved = expandHomePath(trimmed)
+  let rawText: string
+  try {
+    rawText = await readFile(resolved, 'utf8')
+  } catch (error) {
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
+      return
+    }
+    throw error
+  }
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(rawText)
+  } catch {
+    return
+  }
+
+  const nextItems = parsePendingQueueFileItems(parsed).filter((item) => item.taskId !== taskId)
+  const payload = `${JSON.stringify(
+    {
+      schemaVersion: 1,
+      updatedAt: new Date().toISOString(),
+      items: nextItems
+    },
+    null,
+    2
+  )}\n`
+
+  await mkdir(dirname(resolved), { recursive: true })
+  const tmpPath = `${resolved}.${process.pid}.${Date.now()}.tmp`
+  try {
+    await writeFile(tmpPath, payload, { mode: 0o600 })
+    await rename(tmpPath, resolved)
+  } catch (error) {
+    await unlink(tmpPath).catch(() => {})
+    throw error
   }
 }

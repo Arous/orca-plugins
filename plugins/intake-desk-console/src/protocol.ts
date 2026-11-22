@@ -1,4 +1,5 @@
 export const DEFAULT_ADVISOR_SCRIPT_PATH = '~/.orca/bots/intake-desk/scripts/route-advisor.mjs'
+export const DEFAULT_PENDING_QUEUE_PATH = '~/.orca/bots/intake-desk/memory/pending-approvals.json'
 export const DEFAULT_POLL_SECONDS = 30
 export const MIN_POLL_SECONDS = 15
 export const MAX_POLL_SECONDS = 300
@@ -11,6 +12,7 @@ export type AdvisorQuotaStatus =
   | 'rate_limited'
   | 'exhausted'
   | 'expiring'
+  | 'expired'
   | 'unavailable'
   | 'unknown'
 export type RecommendationTrack = 'track2' | 'track3'
@@ -66,6 +68,7 @@ export type AdvisorAlternative = {
 
 export type AdvisorRecommendation = {
   taskId: string
+  domain: string | null
   track: RecommendationTrack
   worktreeMode: WorktreeMode
   worktree?: string | null
@@ -105,6 +108,28 @@ export type ModelOption = {
   label: string
 }
 
+export type PendingQueueFileItem = {
+  taskId: string
+  domain: string
+  projectId?: string | null
+  workspaceId?: string | null
+  track: RecommendationTrack
+  worktreeMode: WorktreeMode
+  worktreeName: string
+  title: string
+  spec: string
+  agent: string
+  model: string
+  effort: string
+  billingType: BillingType
+  estimatedCostUsd: number
+  estimatedMinutes: number
+  reason: string
+  oneLine: string
+  options?: ModelOption[]
+  createdAt: number
+}
+
 export type PendingTask = {
   taskId: string
   domain: string
@@ -114,6 +139,7 @@ export type PendingTask = {
   worktreeMode: WorktreeMode
   worktreeName: string
   title: string
+  spec: string
   selectedModelId: string
   agent: string
   model: string
@@ -125,6 +151,7 @@ export type PendingTask = {
   oneLine: string
   options: ModelOption[]
   createdAt: number
+  source?: 'queue' | 'storage'
 }
 
 export type WorkerBoardStatus = 'working' | 'permission' | 'done' | 'handoff' | 'active' | 'inactive'
@@ -143,6 +170,8 @@ export type WorkerItem = {
   unread: boolean
   terminalCount: number
   lastActivityAt: number | null
+  isDeskOwned: boolean
+  isActive: boolean
 }
 
 export type ConsoleStatus = 'loading' | 'ready' | 'stale' | 'error'
@@ -152,6 +181,7 @@ export type ConsoleState = {
   instanceId: string
   revision: number
   advisorScriptPath: string
+  pendingQueuePath: string
   advisor: AdvisorPayload | null
   pending: PendingTask[]
   workers: WorkerItem[]

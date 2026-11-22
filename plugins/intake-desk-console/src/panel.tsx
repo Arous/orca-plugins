@@ -30,7 +30,9 @@ import {
   formatQuotaMeta,
   formatQuotaSummary,
   formatTaskCost,
+  isDeskOrActiveWorker,
   quotaDisplayPct,
+  quotaStatusLabel,
   quotaTone,
   workerStatusLabel,
   workerStatusTone
@@ -41,6 +43,7 @@ const state = atom<ConsoleState | null>(null)
 const failure = atom<string | null>(null)
 const busy = atom(false)
 const domainFilter = atom<string>('전체')
+const workerScope = atom<'desk' | 'all'>('desk')
 const showA2ui = atom(false)
 const a2uiSnapshot = atom<A2UIMessage[] | null>(null)
 let eventRevision = 0
@@ -171,8 +174,12 @@ export default function Panel() {
 
   const advisor = current.advisor
   const displayStatus = failureMessage ? (advisor ? 'stale' : 'error') : current.status
-  const effectiveDomain = current.domains.includes(activeDomain) ? activeDomain : '전체'
-  const groupedWorkers = groupWorkers(current.workers, effectiveDomain)
+  const activeScope = read(workerScope)
+  const deskWorkers = current.workers.filter(isDeskOrActiveWorker)
+  const scopedWorkers = activeScope === 'desk' ? deskWorkers : current.workers
+  const scopedDomains = ['전체', ...Array.from(new Set(scopedWorkers.map((worker) => worker.domain)))]
+  const effectiveDomain = scopedDomains.includes(activeDomain) ? activeDomain : '전체'
+  const groupedWorkers = groupWorkers(scopedWorkers, effectiveDomain)
   const a2uiText = JSON.stringify(a2uiMessages ?? buildA2UISurfacePayload(current), null, 2)
 
   return (
@@ -260,7 +267,7 @@ export default function Panel() {
                 />
                 <Row justify="between" align="center">
                   <Badge tone={quotaTone(quota)}>
-                    {quota.status === 'ok' ? `${quotaDisplayPct(quota)}%` : quota.status}
+                    {quota.status === 'ok' ? `${quotaDisplayPct(quota)}%` : quotaStatusLabel(quota.status)}
                   </Badge>
                   <Text muted size="xs">
                     {formatQuotaMeta(quota)}
@@ -275,6 +282,17 @@ export default function Panel() {
                   label: entry.label,
                   value: formatPaygSummary(entry)
                 }))}
+              />
+            ) : null}
+
+            {advisor.recommendation ? (
+              <KeyValue
+                items={[
+                  {
+                    label: '기본 추천',
+                    value: `${advisor.recommendation.agent} / ${advisor.recommendation.model} (${advisor.recommendation.effort}) · ${advisor.recommendation.track === 'track3' ? 'Track 3' : 'Track 2'} · ${formatTaskCost(advisor.recommendation.billingType, advisor.recommendation.estimatedCostUsd)}`
+                  }
+                ]}
               />
             ) : null}
           </Stack>
@@ -298,8 +316,10 @@ export default function Panel() {
             <Card key={task.taskId} title={`${task.taskId} · ${task.domain}`} description={task.title}>
               <Stack gap="sm">
                 <Row gap="xs" wrap align="center">
-                  <Badge tone="accent">{task.track}</Badge>
-                  <Badge tone="neutral">{task.worktreeName}</Badge>
+                  <Badge tone="accent">{task.track === 'track3' ? 'Track 3' : 'Track 2'}</Badge>
+                  <Badge tone="neutral">
+                    {task.worktreeMode === 'existing' ? `기존 · ${task.worktreeName}` : task.worktreeName}
+                  </Badge>
                   <Badge tone="neutral">{formatTaskCost(task.billingType, task.estimatedCostUsd)}</Badge>
                   <Text muted size="xs">{`예상 ${task.estimatedMinutes}분`}</Text>
                 </Row>
@@ -391,11 +411,28 @@ export default function Panel() {
       <Stack gap="sm">
         <Row justify="between" align="center">
           <Heading level={3}>도메인 병렬 워커</Heading>
-          <Badge tone="accent">{`${current.workers.length}건`}</Badge>
+          <Badge tone={scopedWorkers.length > 0 ? 'accent' : 'neutral'}>{`${scopedWorkers.length}건`}</Badge>
         </Row>
 
         <Row gap="xs" wrap>
-          {current.domains.map((domain) => (
+          <Button
+            size="xs"
+            variant={activeScope === 'desk' ? 'solid' : 'outline'}
+            onPress={() => set(workerScope, 'desk')}
+          >
+            {`Desk · 활성 (${deskWorkers.length})`}
+          </Button>
+          <Button
+            size="xs"
+            variant={activeScope === 'all' ? 'solid' : 'outline'}
+            onPress={() => set(workerScope, 'all')}
+          >
+            {`전체 워크트리 (${current.workers.length})`}
+          </Button>
+        </Row>
+
+        <Row gap="xs" wrap>
+          {scopedDomains.map((domain) => (
             <Button
               key={domain}
               size="xs"
@@ -408,7 +445,14 @@ export default function Panel() {
         </Row>
 
         {groupedWorkers.length === 0 ? (
-          <EmptyState title="실행 중인 워커가 없습니다" icon="bot" />
+          <EmptyState
+            title={
+              activeScope === 'desk'
+                ? '실행 중인 Desk 워커가 없습니다'
+                : '워크트리가 없습니다'
+            }
+            icon="bot"
+          />
         ) : (
           groupedWorkers.map(([domain, workers]) => (
             <Card key={domain} title={`${domain} (${workers.length})`}>

@@ -1,3 +1,6 @@
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import type { OrcaWorkerApi } from 'orca/worker'
 import { assert, test } from 'orca/testing'
 import {
@@ -5,7 +8,7 @@ import {
   liveAdvisorPayload,
   samplePendingTasks
 } from './fixtures'
-import type { ConsoleState } from './protocol'
+import type { ConsoleState, PendingQueueFileItem } from './protocol'
 import { createRuntime } from './worker'
 
 type StatusBarCall = {
@@ -40,6 +43,7 @@ function fakeOrca(options: {
 } = {}) {
   const settings: Record<string, unknown> = {
     advisorScriptPath: '~/.orca/bots/intake-desk/scripts/route-advisor.mjs',
+    pendingQueuePath: '/nonexistent/intake-desk-test-pending-approvals.json',
     pollSeconds: 30,
     ...options.settings
   }
@@ -188,8 +192,20 @@ function fakeOrca(options: {
   }
 }
 
-test('collects advisor, workspaces, and projects into ready ConsoleState and updates statusBar', async () => {
+test('does not synthesize fake pending tasks from advisor recommendation and filters inactive non-Desk worktrees in statusBar', async () => {
   const fake = fakeOrca()
+  fake.workspaces.push({
+    id: 'ws-other-inactive',
+    kind: 'worktree',
+    name: 'legacy-manual-branch',
+    project: 'TennisClubManagement',
+    projectId: 'proj-tcm',
+    path: '/wt/legacy-manual-branch',
+    branch: 'feat/manual-legacy',
+    hostId: 'local',
+    status: { state: 'inactive', unread: false, terminalCount: 0, lastActivityAt: null }
+  })
+
   const runtime = createRuntime(fake.orca, {
     collectAdvisor: async () => ({ ok: true, payload: liveAdvisorPayload }),
     now: () => 1_795_280_000_000
@@ -199,15 +215,77 @@ test('collects advisor, workspaces, and projects into ready ConsoleState and upd
     const state = await runtime.refresh()
     assert.equal(state.status, 'ready')
     assert.equal(state.advisor?.deskModel.active, 'openai-codex/gpt-6.2-astra')
-    assert.equal(state.pending.length, 1)
-    assert.equal(state.pending[0]?.taskId, '#T1')
-    assert.equal(state.workers.length, 2)
-    assert.deepEqual(state.domains, ['전체', 'TennisClubManagement', 'ObsidianAutomation'])
-    assert.equal(fake.statusBar.at(-1)?.text, 'Desk 대기 1 · 워커 2')
+    assert.equal(state.pending.length, 0)
+    assert.equal(state.workers.length, 3)
+    const legacy = state.workers.find((w) => w.id === 'ws-other-inactive')
+    assert.equal(legacy?.isDeskOwned, false)
+    assert.equal(legacy?.isActive, false)
+    assert.deepEqual(state.domains, ['전체', 'ObsidianAutomation', 'TennisClubManagement'])
+    assert.equal(fake.statusBar.at(-1)?.text, 'Desk 대기 0 · 워커 2')
     assert.equal(fake.statusBar.at(-1)?.tone, 'success')
     assert.deepEqual(fake.handlers.get('console.get')?.(), state)
   } finally {
     runtime.stop()
+  }
+})
+
+test('reads real pending-approvals.json file with explicit spec and removes dispatched item from queue file', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'intake-queue-file-'))
+  try {
+    mkdirSync(dir, { recursive: true })
+    const queuePath = join(dir, 'pending-approvals.json')
+    const queueItems: PendingQueueFileItem[] = [
+      {
+        taskId: '#T1',
+        domain: 'TennisClubManagement',
+        projectId: 'proj-tcm',
+        track: 'track2',
+        worktreeMode: 'new',
+        worktreeName: 'desk-tcm-real-queue',
+        title: '대진표 테스트 보강',
+        spec: 'docs와 tests를 확인해 티어 대진표 동시성 회귀 테스트를 추가하라.',
+        agent: 'codex',
+        model: 'gpt-6-astra',
+        effort: 'high',
+        billingType: 'subscription',
+        estimatedCostUsd: 0,
+        estimatedMinutes: 15,
+        reason: 'Codex 주간 9% 여유',
+        oneLine: '추천 #T1',
+        createdAt: 1_795_280_000_000
+      }
+    ]
+    writeFileSync(queuePath, JSON.stringify({ schemaVersion: 1, items: queueItems }, null, 2))
+
+    const fake = fakeOrca({ settings: { pendingQueuePath: queuePath } })
+    const commandCalls: Array<{ cmd: string; args: string[] }> = []
+    const runtime = createRuntime(fake.orca, {
+      collectAdvisor: async () => ({ ok: true, payload: liveAdvisorPayload }),
+      runCommand: async (cmd, args) => {
+        commandCalls.push({ cmd, args })
+        return { exitCode: 0, stdout: '{"workspaceId":"ws-new-t1"}', stderr: '' }
+      },
+      now: () => 1_795_280_000_000
+    })
+    await runtime.start()
+    try {
+      const state = await runtime.refresh()
+      assert.equal(state.pending.length, 1)
+      assert.equal(state.pending[0]?.spec, queueItems[0]?.spec)
+      assert.equal(fake.statusBar.at(-1)?.text, 'Desk 대기 1 · 워커 2')
+
+      await fake.handlers.get('console.approve')!({ taskId: '#T1' })
+      assert.equal(commandCalls.length, 1)
+      assert.ok(commandCalls[0]?.args.includes('path:/repo/tcm'))
+      assert.ok(commandCalls[0]?.args.includes(queueItems[0]!.spec))
+
+      const persistedQueue = JSON.parse(readFileSync(queuePath, 'utf8')) as { items: unknown[] }
+      assert.equal(persistedQueue.items.length, 0)
+    } finally {
+      runtime.stop()
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
   }
 })
 
@@ -426,9 +504,9 @@ test('handles settings read failure via single settingsFailure transition and re
   }
 })
 
-test('matches existing workspaceId by name, branch, or path suffix when worktreeMode is existing', async () => {
-  // 1. Match by path suffix and verify approve calls agent.launch instead of worker-start CLI
-  const fakeByPath = fakeOrca({
+test('dispatches track3 tasks as Track 3 even via console.approve, forwards model/effort to existing CLI, and fails closed on unmatched or cross-project existing targets', async () => {
+  // 1. Existing worktree matched strictly within same project & local host forwards model/effort via CLI
+  const fakeMatched = fakeOrca({
     workspaces: [
       {
         id: 'ws-obs-existing',
@@ -436,102 +514,238 @@ test('matches existing workspaceId by name, branch, or path suffix when worktree
         name: 'obs-followup',
         project: 'ObsidianAutomation',
         projectId: 'proj-obs',
-        path: '/Users/test/wt/tcm-validation-followup-terra',
-        branch: 'feat/followup',
+        path: '/Users/test/wt/obs-validation-followup',
+        branch: 'refs/heads/feat/followup',
         hostId: 'local',
         status: { state: 'inactive', unread: false, terminalCount: 0, lastActivityAt: null }
       }
     ]
   })
-  let cliCalled = false
-  const runtimePath = createRuntime(fakeByPath.orca, {
-    collectAdvisor: async () => ({
-      ok: true,
-      payload: {
-        ...liveAdvisorPayload,
-        recommendation: {
-          ...liveAdvisorPayload.recommendation!,
-          taskId: '#T10',
-          track: 'track2',
-          worktreeMode: 'existing',
-          worktree: 'tcm-validation-followup-terra'
-        }
+  const matchedCalls: Array<{ cmd: string; args: string[] }> = []
+  const matchedRuntime = createRuntime(fakeMatched.orca, {
+    collectAdvisor: async () => ({ ok: true, payload: liveAdvisorPayload }),
+    readPendingQueue: async () => [
+      {
+        taskId: '#T10',
+        domain: 'ObsidianAutomation',
+        projectId: 'proj-obs',
+        track: 'track2',
+        worktreeMode: 'existing',
+        worktreeName: 'obs-validation-followup',
+        title: '기존 워크트리 검증',
+        spec: '기존 워크트리 obs-validation-followup의 회귀 테스트를 실행하라.',
+        agent: 'codex',
+        model: 'gpt-6-astra',
+        effort: 'high',
+        billingType: 'subscription',
+        estimatedCostUsd: 0,
+        estimatedMinutes: 10,
+        reason: 'Codex 주간 여유',
+        oneLine: '추천 #T10',
+        createdAt: 1_795_280_000_000
       }
-    }),
-    runCommand: async () => {
-      cliCalled = true
-      return { exitCode: 0, stdout: '{}', stderr: '' }
+    ],
+    runCommand: async (cmd, args) => {
+      matchedCalls.push({ cmd, args })
+      return { exitCode: 0, stdout: '{"ok":true}', stderr: '' }
     },
     now: () => 1_795_280_000_000
   })
-  await runtimePath.start()
+  await matchedRuntime.start()
   try {
-    const refreshed = await runtimePath.refresh()
+    const refreshed = await matchedRuntime.refresh()
     const task = refreshed.pending.find((p) => p.taskId === '#T10')
     assert.ok(task)
     assert.equal(task.workspaceId, 'ws-obs-existing')
     assert.equal(task.domain, 'ObsidianAutomation')
-    assert.equal(task.projectId, 'proj-obs')
 
-    await fakeByPath.handlers.get('console.approve')!({ taskId: '#T10' })
-    assert.equal(cliCalled, false)
-    assert.ok(
-      fakeByPath.hostCalls.some(
-        (c) =>
-          c.method === 'agent.launch' &&
-          (c.params as { workspaceId: string }).workspaceId === 'ws-obs-existing'
-      )
+    await fakeMatched.handlers.get('console.approve')!({ taskId: '#T10' })
+    assert.equal(matchedCalls.length, 1)
+    assert.equal(matchedCalls[0]?.args.includes('worker-start'), true)
+    assert.equal(matchedCalls[0]?.args.includes('id:ws-obs-existing'), true)
+    assert.equal(matchedCalls[0]?.args.includes('gpt-6-astra'), true)
+    assert.equal(matchedCalls[0]?.args.includes('high'), true)
+    assert.equal(
+      matchedCalls[0]?.args.includes('기존 워크트리 obs-validation-followup의 회귀 테스트를 실행하라.'),
+      true
+    )
+    assert.equal(
+      fakeMatched.hostCalls.some((c) => c.method === 'agent.launch'),
+      false
     )
   } finally {
-    runtimePath.stop()
+    matchedRuntime.stop()
   }
 
-  // 2. Match by branch, and keep null safely when no workspace matches
-  const fakeByBranch = fakeOrca()
-  const runtimeBranch = createRuntime(fakeByBranch.orca, {
-    collectAdvisor: async () => ({
-      ok: true,
-      payload: {
-        ...liveAdvisorPayload,
-        recommendation: {
-          ...liveAdvisorPayload.recommendation!,
-          taskId: '#T11',
-          worktreeMode: 'existing',
-          worktree: 'desk-obs-dedup'
-        }
+  // 2. Track 3 task approved via console.approve obeys track3 and omits fixed/none effort
+  const fakeTrack3 = fakeOrca()
+  const track3Calls: Array<{ cmd: string; args: string[] }> = []
+  const track3Runtime = createRuntime(fakeTrack3.orca, {
+    collectAdvisor: async () => ({ ok: true, payload: liveAdvisorPayload }),
+    readPendingQueue: async () => [
+      {
+        taskId: '#T11',
+        domain: 'ObsidianAutomation',
+        projectId: 'proj-obs',
+        track: 'track3',
+        worktreeMode: 'existing',
+        worktreeName: 'feat/followup',
+        title: 'UI 미세 조정 핸드오프',
+        spec: '기존 워크트리에서 UI 패널 간격을 대화형으로 다듬는다.',
+        agent: 'antigravity',
+        model: 'gemini-pro-orchestrator-g1-pro',
+        effort: 'fixed',
+        billingType: 'subscription',
+        estimatedCostUsd: 0,
+        estimatedMinutes: 15,
+        reason: 'Track 3 추천',
+        oneLine: '추천 #T11',
+        createdAt: 1_795_280_000_000
       }
-    }),
+    ],
+    runCommand: async (cmd, args) => {
+      track3Calls.push({ cmd, args })
+      return { exitCode: 0, stdout: '{"ok":true}', stderr: '' }
+    },
     now: () => 1_795_280_000_000
   })
-  await runtimeBranch.start()
+  fakeTrack3.workspaces.push({
+    id: 'ws-obs-t3',
+    kind: 'worktree',
+    name: 'obs-t3',
+    project: 'ObsidianAutomation',
+    projectId: 'proj-obs',
+    path: '/wt/obs-t3',
+    branch: 'refs/heads/feat/followup',
+    hostId: 'local',
+    status: { state: 'inactive', unread: false, terminalCount: 0, lastActivityAt: null }
+  })
+  await track3Runtime.start()
   try {
-    const state = await runtimeBranch.refresh()
-    assert.equal(state.pending.find((p) => p.taskId === '#T11')?.workspaceId, 'ws-obs-01')
+    await track3Runtime.refresh()
+    const approvedT3 = (await fakeTrack3.handlers.get('console.approve')!({
+      taskId: '#T11'
+    })) as ConsoleState
+    assert.equal(track3Calls.length, 1)
+    assert.equal(track3Calls[0]?.args[0], 'agent')
+    assert.equal(track3Calls[0]?.args[1], 'launch')
+    assert.equal(track3Calls[0]?.args.includes('--surface'), true)
+    assert.equal(track3Calls[0]?.args.includes('--focus'), true)
+    assert.equal(track3Calls[0]?.args.includes('--effort'), false)
+    assert.ok(approvedT3.workers.some((w) => w.taskId === '#T11' && w.track === 'Track 3' && w.status === 'handoff'))
   } finally {
-    runtimeBranch.stop()
+    track3Runtime.stop()
   }
 
+  // 3. Cross-project and nonexistent existing targets fail closed with ZERO CLI / agent.launch calls
   const fakeUnmatched = fakeOrca()
+  const unmatchedCalls: Array<{ cmd: string; args: string[] }> = []
   const runtimeUnmatched = createRuntime(fakeUnmatched.orca, {
-    collectAdvisor: async () => ({
-      ok: true,
-      payload: {
-        ...liveAdvisorPayload,
-        recommendation: {
-          ...liveAdvisorPayload.recommendation!,
-          taskId: '#T12',
-          worktreeMode: 'existing',
-          worktree: 'nonexistent-worktree'
-        }
+    collectAdvisor: async () => ({ ok: true, payload: liveAdvisorPayload }),
+    readPendingQueue: async () => [
+      {
+        taskId: '#T12',
+        domain: 'TennisClubManagement',
+        projectId: 'proj-tcm',
+        track: 'track2',
+        worktreeMode: 'existing',
+        worktreeName: 'desk-obs-dedup', // exists under proj-obs, NOT proj-tcm!
+        title: '교차 프로젝트 오매칭 방지 검증',
+        spec: '교차 프로젝트 워크트리는 절대 실행하면 안 된다.',
+        agent: 'codex',
+        model: 'gpt-6-astra',
+        effort: 'high',
+        billingType: 'subscription',
+        estimatedCostUsd: 0,
+        estimatedMinutes: 10,
+        reason: '검증',
+        oneLine: '추천 #T12',
+        createdAt: 1_795_280_000_000
       }
-    }),
+    ],
+    runCommand: async (cmd, args) => {
+      unmatchedCalls.push({ cmd, args })
+      return { exitCode: 0, stdout: '{}', stderr: '' }
+    },
     now: () => 1_795_280_000_000
   })
   await runtimeUnmatched.start()
   try {
     const state = await runtimeUnmatched.refresh()
     assert.equal(state.pending.find((p) => p.taskId === '#T12')?.workspaceId, null)
+
+    let failedCode: string | undefined
+    try {
+      await fakeUnmatched.handlers.get('console.approve')!({ taskId: '#T12' })
+    } catch (error) {
+      failedCode = (error as { code?: string }).code
+    }
+    assert.equal(failedCode, 'invalid_params')
+    assert.equal(unmatchedCalls.length, 0)
+    assert.equal(
+      fakeUnmatched.hostCalls.some((c) => c.method === 'agent.launch'),
+      false
+    )
+    assert.equal(runtimeUnmatched.state().pending.length, 1)
   } finally {
     runtimeUnmatched.stop()
+  }
+})
+
+test('blocks concurrent duplicate approve calls and preserves task on CLI failure for clean retry', async () => {
+  const fake = fakeOrca({
+    storage: { 'intake-desk-console.pending': samplePendingTasks }
+  })
+  let failOnce = true
+  let releaseCli!: () => void
+  const gate = new Promise<void>((resolve) => {
+    releaseCli = resolve
+  })
+  let cliCount = 0
+
+  const runtime = createRuntime(fake.orca, {
+    collectAdvisor: async () => ({ ok: true, payload: liveAdvisorPayload }),
+    runCommand: async () => {
+      cliCount += 1
+      await gate
+      if (failOnce) {
+        failOnce = false
+        return { exitCode: 1, stdout: '', stderr: 'temporary dispatch failure' }
+      }
+      return { exitCode: 0, stdout: '{"workspaceId":"ws-retried"}', stderr: '' }
+    },
+    now: () => 1_795_280_000_000
+  })
+  await runtime.start()
+  try {
+    await runtime.refresh()
+    const approveHandler = fake.handlers.get('console.approve')!
+    const firstPromise = approveHandler({ taskId: '#T1' }) as Promise<ConsoleState>
+
+    let dupCode: string | undefined
+    try {
+      await approveHandler({ taskId: '#T1' })
+    } catch (error) {
+      dupCode = (error as { code?: string }).code
+    }
+    assert.equal(dupCode, 'conflict')
+
+    releaseCli()
+    let failCode: string | undefined
+    try {
+      await firstPromise
+    } catch (error) {
+      failCode = (error as { code?: string }).code
+    }
+    assert.equal(failCode, 'action_failed')
+    assert.equal(cliCount, 1)
+    assert.equal(runtime.state().pending.length, 1)
+
+    const retryState = (await approveHandler({ taskId: '#T1' })) as ConsoleState
+    assert.equal(cliCount, 2)
+    assert.equal(retryState.pending.length, 0)
+    assert.ok(retryState.workers.some((w) => w.taskId === '#T1' && w.workspaceId === 'ws-retried'))
+  } finally {
+    runtime.stop()
   }
 })

@@ -30,6 +30,7 @@ test('serializes ConsoleState into A2UI v1.0 createSurface, updateComponents, an
   assert.equal(dataMsg.updateDataModel.value.revision, readyConsoleState.revision)
   assert.equal(dataMsg.updateDataModel.value.pendingCount, 1)
   assert.equal(dataMsg.updateDataModel.value.activeWorkerCount, 2)
+  assert.equal(dataMsg.updateDataModel.value.totalWorkspaceCount, 3)
   assert.equal(dataMsg.updateDataModel.value.deskModel, 'openai-codex/gpt-6.2-astra (medium)')
 })
 

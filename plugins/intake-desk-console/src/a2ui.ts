@@ -1,4 +1,9 @@
-import { formatPaygSummary, formatQuotaSummary, workerStatusLabel } from './format'
+import {
+  formatPaygSummary,
+  formatQuotaSummary,
+  isDeskOrActiveWorker,
+  workerStatusLabel
+} from './format'
 import {
   A2UI_CATALOG_ID,
   A2UI_SURFACE_ID,
@@ -155,6 +160,9 @@ export function buildA2UISurfacePayload(state: ConsoleState): A2UIMessage[] {
     ? `${state.advisor.deskModel.active} (${state.advisor.deskModel.effort})`
     : '미연결'
 
+  const activeWorkerCount = state.workers.filter(isDeskOrActiveWorker).length
+  const rec = state.advisor?.recommendation
+
   return [
     {
       version: '1.0',
@@ -198,12 +206,25 @@ export function buildA2UISurfacePayload(state: ConsoleState): A2UIMessage[] {
             last7dUsd: entry.last7dUsd
           })),
           unmappedActiveProviders: state.advisor?.unmappedActiveProviders ?? [],
+          defaultRecommendation: rec
+            ? {
+                agent: rec.agent,
+                model: rec.model,
+                effort: rec.effort,
+                track: rec.track,
+                billingType: rec.billingType,
+                domain: rec.domain,
+                worktree: rec.worktree
+              }
+            : null,
           pendingCount: state.pending.length,
-          activeWorkerCount: state.workers.length,
+          activeWorkerCount,
+          totalWorkspaceCount: state.workers.length,
           pending: state.pending.map((p) => ({
             taskId: p.taskId,
             domain: p.domain,
             track: p.track,
+            worktreeMode: p.worktreeMode,
             modelId: p.selectedModelId,
             title: p.title
           })),
@@ -213,7 +234,9 @@ export function buildA2UISurfacePayload(state: ConsoleState): A2UIMessage[] {
             workspaceId: w.workspaceId,
             domain: w.domain,
             name: w.name,
-            status: w.status
+            status: w.status,
+            isDeskOwned: w.isDeskOwned,
+            isActive: w.isActive
           })),
           error: state.error
         }

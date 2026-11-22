@@ -5,7 +5,7 @@ import type {
   PendingTask,
   WorkerItem
 } from './protocol'
-import { DEFAULT_ADVISOR_SCRIPT_PATH } from './protocol'
+import { DEFAULT_ADVISOR_SCRIPT_PATH, DEFAULT_PENDING_QUEUE_PATH } from './protocol'
 
 export const liveAdvisorPayload: AdvisorPayload = {
   schemaVersion: 1,
@@ -96,6 +96,8 @@ export const liveAdvisorPayload: AdvisorPayload = {
   excludedProviders: ['anthropic-direct'],
   recommendation: {
     taskId: '#T1',
+    domain: 'TennisClubManagement',
+    worktree: 'desk-tcm-tier-race',
     track: 'track2',
     worktreeMode: 'new',
     routeId: 'codex-astra-high',
@@ -161,6 +163,8 @@ export const codex429AdvisorPayload: AdvisorPayload = {
   ],
   recommendation: {
     taskId: '#T1',
+    domain: 'TennisClubManagement',
+    worktree: 'desk-tcm-tier-race',
     track: 'track2',
     worktreeMode: 'new',
     routeId: 'ag-opus-high',
@@ -240,6 +244,28 @@ const sampleOptions: ModelOption[] = [
   }
 ]
 
+export const unavailableQuotaAdvisorPayload: AdvisorPayload = {
+  ...liveAdvisorPayload,
+  quotas: [
+    ...liveAdvisorPayload.quotas,
+    {
+      id: 'antigravity:argon',
+      provider: 'antigravity',
+      label: 'AG Gemini 4 Argon',
+      billingType: 'subscription',
+      status: 'unavailable',
+      sessionUsedPct: null,
+      weeklyUsedPct: null,
+      monthlyUsedPct: null,
+      paceRatio: null,
+      resetsAt: null,
+      resetLabel: null,
+      expiresAt: null,
+      burnDownBonus: 0
+    }
+  ]
+}
+
 export const samplePendingTasks: PendingTask[] = [
   {
     taskId: '#T1',
@@ -250,6 +276,7 @@ export const samplePendingTasks: PendingTask[] = [
     worktreeMode: 'new',
     worktreeName: 'desk-tcm-tier-race',
     title: '티어 대진표 동시성 락 검증 및 회귀 테스트 추가',
+    spec: '티어 대진표 동시성 락을 검증하고 회귀 테스트를 추가한 뒤 테스트 결과를 보고하라.',
     selectedModelId: 'codex/gpt-6-astra:high',
     agent: 'codex',
     model: 'gpt-6-astra',
@@ -278,7 +305,9 @@ export const sampleWorkers: WorkerItem[] = [
     status: 'done',
     unread: true,
     terminalCount: 1,
-    lastActivityAt: 1_795_279_900_000
+    lastActivityAt: 1_795_279_900_000,
+    isDeskOwned: true,
+    isActive: true
   },
   {
     id: 'ws-obs-01',
@@ -293,7 +322,26 @@ export const sampleWorkers: WorkerItem[] = [
     status: 'working',
     unread: false,
     terminalCount: 1,
-    lastActivityAt: 1_795_279_960_000
+    lastActivityAt: 1_795_279_960_000,
+    isDeskOwned: true,
+    isActive: true
+  },
+  {
+    id: 'ws-other-idle',
+    taskId: null,
+    workspaceId: 'ws-other-idle',
+    domain: 'TennisClubManagement',
+    projectId: 'proj-tcm',
+    name: 'legacy-manual-branch',
+    branch: 'feat/manual-legacy',
+    track: 'Track 2',
+    modelLabel: null,
+    status: 'inactive',
+    unread: false,
+    terminalCount: 0,
+    lastActivityAt: 1_795_100_000_000,
+    isDeskOwned: false,
+    isActive: false
   }
 ]
 
@@ -302,6 +350,7 @@ export const readyConsoleState: ConsoleState = {
   instanceId: 'test-worker',
   revision: 1,
   advisorScriptPath: DEFAULT_ADVISOR_SCRIPT_PATH,
+  pendingQueuePath: DEFAULT_PENDING_QUEUE_PATH,
   advisor: liveAdvisorPayload,
   pending: samplePendingTasks,
   workers: sampleWorkers,
@@ -310,6 +359,13 @@ export const readyConsoleState: ConsoleState = {
   lastAttemptAt: 1_795_280_000_000,
   lastSuccessAt: 1_795_280_000_000,
   refreshing: false
+}
+
+export const unavailableQuotaConsoleState: ConsoleState = {
+  ...readyConsoleState,
+  revision: 2,
+  advisor: unavailableQuotaAdvisorPayload,
+  pending: []
 }
 
 export const fallbackConsoleState: ConsoleState = {
@@ -342,6 +398,7 @@ export const errorConsoleState: ConsoleState = {
   instanceId: 'test-worker',
   revision: 6,
   advisorScriptPath: DEFAULT_ADVISOR_SCRIPT_PATH,
+  pendingQueuePath: DEFAULT_PENDING_QUEUE_PATH,
   advisor: null,
   pending: [],
   workers: [],

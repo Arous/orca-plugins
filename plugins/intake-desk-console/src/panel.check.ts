@@ -1,6 +1,11 @@
 import { defineCheck } from 'orca/testing'
 import { buildA2UISurfacePayload } from './a2ui'
-import { errorConsoleState, fallbackConsoleState, readyConsoleState } from './fixtures'
+import {
+  errorConsoleState,
+  fallbackConsoleState,
+  readyConsoleState,
+  unavailableQuotaConsoleState
+} from './fixtures'
 
 export default defineCheck({
   ready: {
@@ -13,6 +18,12 @@ export default defineCheck({
     requests: {
       'console.get': fallbackConsoleState,
       'console.a2uiSnapshot': buildA2UISurfacePayload(fallbackConsoleState)
+    }
+  },
+  unavailable: {
+    requests: {
+      'console.get': unavailableQuotaConsoleState,
+      'console.a2uiSnapshot': buildA2UISurfacePayload(unavailableQuotaConsoleState)
     }
   },
   error: {

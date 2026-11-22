@@ -59,6 +59,14 @@
         "default": 30,
         "minimum": 15,
         "maximum": 300
+      },
+      {
+        "key": "pendingQueuePath",
+        "title": "승인 대기 큐 파일 경로",
+        "description": "Intake Desk가 기록한 pending-approvals.json 경로입니다.",
+        "type": "string",
+        "default": "~/.orca/bots/intake-desk/memory/pending-approvals.json",
+        "maxLength": 512
       }
     ]
   },

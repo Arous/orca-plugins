@@ -6,7 +6,8 @@ import {
   fallbackConsoleState,
   newSubConsoleState,
   readyConsoleState,
-  staleConsoleState
+  staleConsoleState,
+  unavailableQuotaConsoleState
 } from './fixtures'
 import * as panel from './panel'
 import type { ConsoleState } from './protocol'
@@ -41,7 +42,16 @@ test('renders header, quota/PAYG strip, pending queue, and domain worker board c
     assert.ok(tree.includes('#T1'))
     assert.ok(tree.includes('desk-tcm-checkin-card'))
     assert.ok(tree.includes('desk-obs-dedup'))
+    assert.equal(tree.includes('legacy-manual-branch'), false)
+    assert.ok(tree.includes('Desk · 활성 (2)'))
+    assert.ok(tree.includes('전체 워크트리 (3)'))
     assertNoHintCopy(tree, 'ready')
+
+    await view.press({ text: '전체 워크트리 (3)' })
+    assert.ok(JSON.stringify(view.tree()).includes('legacy-manual-branch'))
+
+    await view.press({ text: 'Desk · 활성 (2)' })
+    assert.equal(JSON.stringify(view.tree()).includes('legacy-manual-branch'), false)
 
     await view.press({ text: '새로고침' })
     assert.deepEqual(view.errors, [])
@@ -145,6 +155,7 @@ test('renders fallback, unmapped provider, D-3, stale, and error states without 
     ['fallback', fallbackConsoleState],
     ['newSub', newSubConsoleState],
     ['expiring', expiringConsoleState],
+    ['unavailable', unavailableQuotaConsoleState],
     ['stale', staleConsoleState],
     ['error', errorConsoleState]
   ] as const) {
@@ -156,6 +167,12 @@ test('renders fallback, unmapped provider, D-3, stale, and error states without 
       if (label === 'fallback') assert.ok(tree.includes('폴백'))
       if (label === 'newSub') assert.ok(tree.includes('cursor'))
       if (label === 'expiring') assert.ok(tree.includes('Burn-down +25'))
+      if (label === 'unavailable') {
+        assert.ok(tree.includes('미연결'))
+        assert.equal(tree.includes('상태 정상'), false)
+        assert.ok(tree.includes('기본 추천'))
+        assert.ok(tree.includes('대기 중인 승인이 없습니다'))
+      }
       if (label === 'stale') assert.ok(tree.includes('지연'))
       if (label === 'error') assert.ok(tree.includes('조회 실패'))
       assert.deepEqual(view.errors, [])
