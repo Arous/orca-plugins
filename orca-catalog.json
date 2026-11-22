@@ -85,6 +85,71 @@
           ]
         }
       ]
+    },
+    {
+      "id": "arous.intake-desk-console",
+      "source": {
+        "kind": "git",
+        "url": "https://github.com/Arous/orca-plugins.git",
+        "ref": "master",
+        "path": "plugins/intake-desk-console"
+      },
+      "description": "Orca 사이드바에서 Intake Desk 구독 Quota·종량제 비용, 승인 대기 큐, 도메인별 병렬 워커를 관제합니다.",
+      "categories": [
+        "panels",
+        "status-bar",
+        "agents"
+      ],
+      "releases": [
+        {
+          "version": "0.1.0",
+          "commit": "e91c4ad18854950fed46a8b2620c0ce5bdbced46",
+          "contentHash": "f5ce5f3f5abc15fb262565400b338ffef44b6c6a942232071be493fdf43822f6",
+          "execution": "trusted-worker",
+          "minimumOrca": "1.4.259",
+          "name": "Intake Desk Console",
+          "contributes": [
+            {
+              "kind": "panels",
+              "name": "Intake Desk"
+            },
+            {
+              "kind": "commands",
+              "name": "Intake Desk 상태 새로고침"
+            },
+            {
+              "kind": "events",
+              "name": "agent.status.changed"
+            },
+            {
+              "kind": "events",
+              "name": "workspace.created"
+            },
+            {
+              "kind": "events",
+              "name": "workspace.removed"
+            },
+            {
+              "kind": "events",
+              "name": "workspace.changed"
+            },
+            {
+              "kind": "statusBarItems",
+              "name": "Desk 확인 중"
+            }
+          ],
+          "capabilities": [
+            "workspace:read",
+            "workspace:write",
+            "agent:read",
+            "agent:launch",
+            "terminal:send",
+            "notifications:show",
+            "storage:own",
+            "settings:own"
+          ]
+        }
+      ]
     }
   ]
 }
