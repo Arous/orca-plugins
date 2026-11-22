@@ -22,36 +22,40 @@ export function buildA2UISurfacePayload(state: ConsoleState): A2UIMessage[] {
   const pendingIds: string[] = []
   const workerIds: string[] = []
 
+  const showQuotaSection = state.showQuotaSection !== false
   const quotas = state.advisor?.quotas ?? []
-  for (const quota of quotas) {
-    const id = `quota-${quota.id}`
-    quotaIds.push(id)
-    components.push({
-      id,
-      component: {
-        Card: {
-          title: quota.label,
-          subtitle: formatQuotaSummary(quota),
-          meta: quota.resetLabel ?? ''
-        }
-      }
-    })
-  }
-
   const paygEntries = Object.entries(state.advisor?.payg ?? {})
-  for (const [key, entry] of paygEntries) {
-    const id = `payg-${key}`
-    quotaIds.push(id)
-    components.push({
-      id,
-      component: {
-        Card: {
-          title: entry.label,
-          subtitle: formatPaygSummary(entry),
-          meta: entry.estimateKind
+
+  if (showQuotaSection) {
+    for (const quota of quotas) {
+      const id = `quota-${quota.id}`
+      quotaIds.push(id)
+      components.push({
+        id,
+        component: {
+          Card: {
+            title: quota.label,
+            subtitle: formatQuotaSummary(quota),
+            meta: quota.resetLabel ?? ''
+          }
         }
-      }
-    })
+      })
+    }
+
+    for (const [key, entry] of paygEntries) {
+      const id = `payg-${key}`
+      quotaIds.push(id)
+      components.push({
+        id,
+        component: {
+          Card: {
+            title: entry.label,
+            subtitle: formatPaygSummary(entry),
+            meta: entry.estimateKind
+          }
+        }
+      })
+    }
   }
 
   const taskIdCounts = new Map<string, number>()
@@ -117,7 +121,11 @@ export function buildA2UISurfacePayload(state: ConsoleState): A2UIMessage[] {
       id: 'root',
       component: {
         Column: {
-          children: { explicitList: ['header', 'quota-section', 'pending-section', 'worker-section'] }
+          children: {
+            explicitList: showQuotaSection
+              ? ['header', 'quota-section', 'pending-section', 'worker-section']
+              : ['header', 'pending-section', 'worker-section']
+          }
         }
       }
     },
@@ -147,14 +155,18 @@ export function buildA2UISurfacePayload(state: ConsoleState): A2UIMessage[] {
         }
       }
     },
-    {
-      id: 'quota-section',
-      component: {
-        Column: {
-          children: { explicitList: quotaIds }
-        }
-      }
-    },
+    ...(showQuotaSection
+      ? [
+          {
+            id: 'quota-section',
+            component: {
+              Column: {
+                children: { explicitList: quotaIds }
+              }
+            }
+          }
+        ]
+      : []),
     {
       id: 'pending-section',
       component: {
@@ -203,6 +215,7 @@ export function buildA2UISurfacePayload(state: ConsoleState): A2UIMessage[] {
         value: {
           revision: state.revision,
           status: state.status,
+          showQuotaSection,
           deskModel,
           fallbackActive: state.advisor?.deskModel.fallbackActive ?? false,
           quotas: quotas.map((q) => ({

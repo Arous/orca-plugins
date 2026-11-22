@@ -130,6 +130,13 @@ async function toggleA2ui(): Promise<void> {
   }
 }
 
+async function setQuotaVisible(visible: boolean): Promise<void> {
+  await runAction(
+    () => plugin.request('console.setShowQuota', { visible }),
+    '구독 Quota 표시 설정을 변경하지 못했습니다.'
+  )
+}
+
 function groupWorkers(workers: WorkerItem[], activeDomain: string): Array<[string, WorkerItem[]]> {
   const filtered =
     activeDomain === '전체' ? workers : workers.filter((worker) => worker.domain === activeDomain)
@@ -173,6 +180,7 @@ export default function Panel() {
   }
 
   const advisor = current.advisor
+  const quotaVisible = current.showQuotaSection !== false
   const displayStatus = failureMessage ? (advisor ? 'stale' : 'error') : current.status
   const activeScope = read(workerScope)
   const deskWorkers = current.workers.filter(isDeskOrActiveWorker)
@@ -215,11 +223,22 @@ export default function Panel() {
           <Code>{advisor ? `${advisor.deskModel.active} (${advisor.deskModel.effort})` : '모델 미연결'}</Code>
           {advisor?.deskModel.fallbackActive ? <Badge tone="warning">폴백</Badge> : null}
         </Row>
-        {current.lastSuccessAt ? (
-          <Text muted size="xs">
-            수집 <RelativeTime at={current.lastSuccessAt} format="short" />
-          </Text>
-        ) : null}
+        <Row gap="xs" align="center" wrap>
+          {current.lastSuccessAt ? (
+            <Text muted size="xs">
+              수집 <RelativeTime at={current.lastSuccessAt} format="short" />
+            </Text>
+          ) : null}
+          <Button
+            size="xs"
+            variant={quotaVisible ? 'outline' : 'solid'}
+            icon="gauge"
+            disabled={loading}
+            onPress={() => setQuotaVisible(!quotaVisible)}
+          >
+            {quotaVisible ? 'Quota 숨기기' : 'Quota 보기'}
+          </Button>
+        </Row>
       </Row>
 
       {failureMessage || current.error ? (
@@ -250,56 +269,58 @@ export default function Panel() {
         </Card>
       ) : null}
 
-      <Card title="구독 Quota · 종량제">
-        {advisor ? (
-          <Stack gap="sm">
-            {advisor.unmappedActiveProviders.length > 0 ? (
-              <Callout tone="accent" title="신규 활성 구독 감지">
-                {`${advisor.unmappedActiveProviders.join(', ')} 프로바이더가 활성화되어 있습니다. routing-catalog.json에 매핑을 추가할 수 있습니다.`}
-              </Callout>
-            ) : null}
+      {quotaVisible ? (
+        <Card title="구독 Quota · 종량제">
+          {advisor ? (
+            <Stack gap="sm">
+              {advisor.unmappedActiveProviders.length > 0 ? (
+                <Callout tone="accent" title="신규 활성 구독 감지">
+                  {`${advisor.unmappedActiveProviders.join(', ')} 프로바이더가 활성화되어 있습니다. routing-catalog.json에 매핑을 추가할 수 있습니다.`}
+                </Callout>
+              ) : null}
 
-            {advisor.quotas.map((quota) => (
-              <Stack key={quota.id} gap="xs">
-                <Progress
-                  label={`${quota.label} · ${formatQuotaSummary(quota)}`}
-                  value={quotaDisplayPct(quota)}
+              {advisor.quotas.map((quota) => (
+                <Stack key={quota.id} gap="xs">
+                  <Progress
+                    label={`${quota.label} · ${formatQuotaSummary(quota)}`}
+                    value={quotaDisplayPct(quota)}
+                  />
+                  <Row justify="between" align="center">
+                    <Badge tone={quotaTone(quota)}>
+                      {quota.status === 'ok' ? `${quotaDisplayPct(quota)}%` : quotaStatusLabel(quota.status)}
+                    </Badge>
+                    <Text muted size="xs">
+                      {formatQuotaMeta(quota)}
+                    </Text>
+                  </Row>
+                </Stack>
+              ))}
+
+              {Object.keys(advisor.payg).length > 0 ? (
+                <KeyValue
+                  items={Object.values(advisor.payg).map((entry) => ({
+                    label: entry.label,
+                    value: formatPaygSummary(entry)
+                  }))}
                 />
-                <Row justify="between" align="center">
-                  <Badge tone={quotaTone(quota)}>
-                    {quota.status === 'ok' ? `${quotaDisplayPct(quota)}%` : quotaStatusLabel(quota.status)}
-                  </Badge>
-                  <Text muted size="xs">
-                    {formatQuotaMeta(quota)}
-                  </Text>
-                </Row>
-              </Stack>
-            ))}
+              ) : null}
 
-            {Object.keys(advisor.payg).length > 0 ? (
-              <KeyValue
-                items={Object.values(advisor.payg).map((entry) => ({
-                  label: entry.label,
-                  value: formatPaygSummary(entry)
-                }))}
-              />
-            ) : null}
-
-            {advisor.recommendation ? (
-              <KeyValue
-                items={[
-                  {
-                    label: '기본 추천',
-                    value: `${advisor.recommendation.agent} / ${advisor.recommendation.model} (${advisor.recommendation.effort}) · ${advisor.recommendation.track === 'track3' ? 'Track 3' : 'Track 2'} · ${formatTaskCost(advisor.recommendation.billingType, advisor.recommendation.estimatedCostUsd)}`
-                  }
-                ]}
-              />
-            ) : null}
-          </Stack>
-        ) : (
-          <EmptyState title="Quota 정보 없음" description="route-advisor.mjs 응답을 기다리는 중입니다." icon="gauge" />
-        )}
-      </Card>
+              {advisor.recommendation ? (
+                <KeyValue
+                  items={[
+                    {
+                      label: '기본 추천',
+                      value: `${advisor.recommendation.agent} / ${advisor.recommendation.model} (${advisor.recommendation.effort}) · ${advisor.recommendation.track === 'track3' ? 'Track 3' : 'Track 2'} · ${formatTaskCost(advisor.recommendation.billingType, advisor.recommendation.estimatedCostUsd)}`
+                    }
+                  ]}
+                />
+              ) : null}
+            </Stack>
+          ) : (
+            <EmptyState title="Quota 정보 없음" description="route-advisor.mjs 응답을 기다리는 중입니다." icon="gauge" />
+          )}
+        </Card>
+      ) : null}
 
       <Stack gap="sm">
         <Row justify="between" align="center">

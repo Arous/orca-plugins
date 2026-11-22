@@ -3,6 +3,7 @@ export const DEFAULT_PENDING_QUEUE_PATH = '~/.orca/bots/intake-desk/memory/pendi
 export const DEFAULT_POLL_SECONDS = 30
 export const MIN_POLL_SECONDS = 15
 export const MAX_POLL_SECONDS = 300
+export const DEFAULT_SHOW_QUOTA_SECTION = true
 export const A2UI_SURFACE_ID = 'intake_desk_console'
 export const A2UI_CATALOG_ID = 'orca.intake_desk.v1'
 
@@ -189,6 +190,7 @@ export type ConsoleState = {
   revision: number
   advisorScriptPath: string
   pendingQueuePath: string
+  showQuotaSection: boolean
   advisor: AdvisorPayload | null
   pending: PendingTask[]
   workers: WorkerItem[]
@@ -255,6 +257,10 @@ export type OpenWorkspaceInput = {
   workspaceId: string
 }
 
+export type SetShowQuotaInput = {
+  visible: boolean
+}
+
 declare module 'orca' {
   interface PluginRequests {
     'console.get': { output: ConsoleState }
@@ -264,6 +270,7 @@ declare module 'orca' {
     'console.handoff': { input: HandoffTaskInput; output: ConsoleState }
     'console.cancel': { input: CancelTaskInput; output: ConsoleState }
     'console.openWorkspace': { input: OpenWorkspaceInput; output: ConsoleState }
+    'console.setShowQuota': { input: SetShowQuotaInput; output: ConsoleState }
     'console.a2uiSnapshot': { output: A2UIMessage[] }
   }
 

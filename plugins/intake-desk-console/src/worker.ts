@@ -15,6 +15,7 @@ import {
   DEFAULT_ADVISOR_SCRIPT_PATH,
   DEFAULT_PENDING_QUEUE_PATH,
   DEFAULT_POLL_SECONDS,
+  DEFAULT_SHOW_QUOTA_SECTION,
   MAX_POLL_SECONDS,
   MIN_POLL_SECONDS,
   type AdvisorRecommendation,
@@ -28,6 +29,7 @@ import {
   type PendingQueueAckEntry,
   type PendingQueueFileItem,
   type PendingTask,
+  type SetShowQuotaInput,
   type WorkerBoardStatus,
   type WorkerItem
 } from './protocol'
@@ -35,6 +37,7 @@ import {
 const STORAGE_PENDING_KEY = 'intake-desk-console.pending'
 const STORAGE_WORKERS_KEY = 'intake-desk-console.workers'
 const STORAGE_HANDLED_KEY = 'intake-desk-console.handled'
+const STORAGE_SHOW_QUOTA_KEY = 'intake-desk-console.showQuotaSection'
 const CLI_TIMEOUT_MS = 15_000
 
 export type AdvisorCollector = (
@@ -55,6 +58,7 @@ export type RuntimeSettings = {
   advisorScriptPath: string
   pendingQueuePath: string
   pollSeconds: number
+  showQuotaSection: boolean
 }
 
 export type ConsoleRuntime = {
@@ -96,7 +100,8 @@ type WorkspaceRow = {
 function initialState(
   advisorScriptPath: string,
   pendingQueuePath: string,
-  instanceId: string
+  instanceId: string,
+  showQuotaSection: boolean = DEFAULT_SHOW_QUOTA_SECTION
 ): ConsoleState {
   return {
     status: 'loading',
@@ -104,6 +109,7 @@ function initialState(
     revision: 0,
     advisorScriptPath,
     pendingQueuePath,
+    showQuotaSection,
     advisor: null,
     pending: [],
     workers: [],
@@ -120,6 +126,7 @@ async function readSettings(orca: OrcaWorkerApi): Promise<RuntimeSettings> {
   const pathValue = values.advisorScriptPath
   const queueValue = values.pendingQueuePath
   const pollValue = values.pollSeconds
+  const showQuotaValue = values.showQuotaSection
   const advisorScriptPath =
     typeof pathValue === 'string' && pathValue.trim()
       ? pathValue.trim()
@@ -135,7 +142,9 @@ async function readSettings(orca: OrcaWorkerApi): Promise<RuntimeSettings> {
   return {
     advisorScriptPath,
     pendingQueuePath,
-    pollSeconds: Math.min(MAX_POLL_SECONDS, Math.max(MIN_POLL_SECONDS, candidate))
+    pollSeconds: Math.min(MAX_POLL_SECONDS, Math.max(MIN_POLL_SECONDS, candidate)),
+    showQuotaSection:
+      typeof showQuotaValue === 'boolean' ? showQuotaValue : DEFAULT_SHOW_QUOTA_SECTION
   }
 }
 
@@ -594,9 +603,17 @@ export function createRuntime(orca: OrcaWorkerApi, deps: RuntimeDeps = {}): Cons
   let settings: RuntimeSettings = {
     advisorScriptPath: DEFAULT_ADVISOR_SCRIPT_PATH,
     pendingQueuePath: DEFAULT_PENDING_QUEUE_PATH,
-    pollSeconds: DEFAULT_POLL_SECONDS
+    pollSeconds: DEFAULT_POLL_SECONDS,
+    showQuotaSection: DEFAULT_SHOW_QUOTA_SECTION
   }
-  let state = initialState(settings.advisorScriptPath, settings.pendingQueuePath, instanceId)
+  let storedShowQuota: boolean | null = null
+  let showQuotaSection = DEFAULT_SHOW_QUOTA_SECTION
+  let state = initialState(
+    settings.advisorScriptPath,
+    settings.pendingQueuePath,
+    instanceId,
+    showQuotaSection
+  )
   let revision = 0
   let pendingQueue: PendingTask[] = []
   let localWorkers: WorkerItem[] = []
@@ -636,11 +653,16 @@ export function createRuntime(orca: OrcaWorkerApi, deps: RuntimeDeps = {}): Cons
 
   async function loadStorage(): Promise<void> {
     try {
-      const [pendingRaw, workersRaw, handledRaw] = await Promise.all([
+      const [pendingRaw, workersRaw, handledRaw, showQuotaRaw] = await Promise.all([
         orca.storage.get(STORAGE_PENDING_KEY),
         orca.storage.get(STORAGE_WORKERS_KEY),
-        orca.storage.get(STORAGE_HANDLED_KEY)
+        orca.storage.get(STORAGE_HANDLED_KEY),
+        orca.storage.get(STORAGE_SHOW_QUOTA_KEY)
       ])
+      if (typeof showQuotaRaw === 'boolean') {
+        storedShowQuota = showQuotaRaw
+        showQuotaSection = showQuotaRaw
+      }
       handledTaskKeys = new Set(readStoredArray<string>(handledRaw))
       pendingQueue = readStoredArray<PendingTask>(pendingRaw).filter(
         (item) =>
@@ -683,16 +705,24 @@ export function createRuntime(orca: OrcaWorkerApi, deps: RuntimeDeps = {}): Cons
     return state
   }
 
-  function adoptSettings(next: RuntimeSettings): boolean {
+  function adoptSettings(next: RuntimeSettings, applyQuotaSetting = false): boolean {
     const sourceChanged =
       next.advisorScriptPath !== settings.advisorScriptPath ||
       next.pendingQueuePath !== settings.pendingQueuePath
     settings = next
     settingsReady = true
+    if (applyQuotaSetting) {
+      showQuotaSection = next.showQuotaSection
+      storedShowQuota = next.showQuotaSection
+      void orca.storage.set(STORAGE_SHOW_QUOTA_KEY, showQuotaSection).catch(() => {})
+    } else {
+      showQuotaSection = storedShowQuota ?? next.showQuotaSection
+    }
     state = {
       ...state,
       advisorScriptPath: next.advisorScriptPath,
-      pendingQueuePath: next.pendingQueuePath
+      pendingQueuePath: next.pendingQueuePath,
+      showQuotaSection
     }
     return sourceChanged
   }
@@ -842,6 +872,7 @@ export function createRuntime(orca: OrcaWorkerApi, deps: RuntimeDeps = {}): Cons
             revision: ++revision,
             advisorScriptPath: scriptPath,
             pendingQueuePath: queuePath,
+            showQuotaSection,
             advisor: payload,
             pending: pendingQueue,
             workers,
@@ -1135,7 +1166,23 @@ export function createRuntime(orca: OrcaWorkerApi, deps: RuntimeDeps = {}): Cons
     return state
   }
 
-  async function reloadSettings(): Promise<void> {
+  async function setShowQuota(input: SetShowQuotaInput): Promise<ConsoleState> {
+    if (!input || typeof input.visible !== 'boolean') {
+      throw withErrorCode('표시 여부(visible)는 boolean이어야 합니다.', 'invalid_params')
+    }
+    showQuotaSection = input.visible
+    storedShowQuota = input.visible
+    await orca.storage.set(STORAGE_SHOW_QUOTA_KEY, input.visible).catch(() => {})
+    state = {
+      ...state,
+      revision: ++revision,
+      showQuotaSection
+    }
+    publish()
+    return state
+  }
+
+  async function reloadSettings(changedKey?: string): Promise<void> {
     if (stopped) return
     const request = ++settingsRequest
     let next: RuntimeSettings
@@ -1147,8 +1194,19 @@ export function createRuntime(orca: OrcaWorkerApi, deps: RuntimeDeps = {}): Cons
       return
     }
     if (stopped || request !== settingsRequest) return
+    const prevSettingShowQuota = settings.showQuotaSection
     const intervalChanged = next.pollSeconds !== settings.pollSeconds
-    const pathChanged = adoptSettings(next)
+    const showQuotaChanged =
+      changedKey === 'showQuotaSection' || next.showQuotaSection !== prevSettingShowQuota
+    const pathChanged = adoptSettings(next, showQuotaChanged)
+    if (showQuotaChanged) {
+      state = {
+        ...state,
+        revision: ++revision,
+        showQuotaSection
+      }
+      publish()
+    }
     if (pathChanged) {
       const pending = inFlight
       controller?.abort()
@@ -1186,6 +1244,9 @@ export function createRuntime(orca: OrcaWorkerApi, deps: RuntimeDeps = {}): Cons
       orca.panels.handle('console.openWorkspace', (input) => openWorkspace(input))
     )
     disposables.push(
+      orca.panels.handle('console.setShowQuota', (input) => setShowQuota(input))
+    )
+    disposables.push(
       orca.panels.handle('console.a2uiSnapshot', () => buildA2UISurfacePayload(state))
     )
 
@@ -1208,8 +1269,8 @@ export function createRuntime(orca: OrcaWorkerApi, deps: RuntimeDeps = {}): Cons
     }
 
     disposables.push(
-      orca.settings.onDidChange(() => {
-        void reloadSettings().catch(() =>
+      orca.settings.onDidChange((change) => {
+        void reloadSettings(change?.key).catch(() =>
           orca.log('Intake Desk Console: settings reload failed')
         )
       })

@@ -188,6 +188,11 @@ function fakeOrca(options: {
       for (const listener of eventHandlers.get(event) ?? []) {
         await listener(payload)
       }
+    },
+    emitSettingsChange: (key: string) => {
+      for (const listener of settingsListeners) {
+        listener({ key })
+      }
     }
   }
 }
@@ -958,5 +963,66 @@ test('blocks concurrent duplicate approve calls and preserves task on CLI failur
     assert.ok(retryState.workers.some((w) => w.taskId === '#T1' && w.workspaceId === 'ws-retried'))
   } finally {
     runtime.stop()
+  }
+})
+
+test('persists showQuotaSection via console.setShowQuota, validates input, and syncs settings.onDidChange', async () => {
+  const persistedStorage: Record<string, unknown> = {}
+  const fake1 = fakeOrca({ storage: persistedStorage })
+  const runtime1 = createRuntime(fake1.orca, {
+    collectAdvisor: async () => ({ ok: true, payload: liveAdvisorPayload }),
+    now: () => 1_795_280_000_000
+  })
+
+  await runtime1.start()
+  try {
+    await runtime1.refresh()
+    assert.equal(runtime1.state().showQuotaSection, true)
+
+    const setShowQuota = fake1.handlers.get('console.setShowQuota')
+    assert.ok(setShowQuota)
+
+    let invalidCode: string | undefined
+    try {
+      await setShowQuota({ visible: 'nope' })
+    } catch (error) {
+      invalidCode = (error as { code?: string }).code
+    }
+    assert.equal(invalidCode, 'invalid_params')
+
+    const hidden = (await setShowQuota({ visible: false })) as ConsoleState
+    assert.equal(hidden.showQuotaSection, false)
+    assert.equal(fake1.storage.get('intake-desk-console.showQuotaSection'), false)
+
+    persistedStorage['intake-desk-console.showQuotaSection'] = fake1.storage.get(
+      'intake-desk-console.showQuotaSection'
+    )
+  } finally {
+    runtime1.stop()
+  }
+
+  // Restart with persisted storage: remains hidden even though settings.showQuotaSection defaults to true
+  const fake2 = fakeOrca({ storage: persistedStorage })
+  const runtime2 = createRuntime(fake2.orca, {
+    collectAdvisor: async () => ({ ok: true, payload: liveAdvisorPayload }),
+    now: () => 1_795_280_005_000
+  })
+  await runtime2.start()
+  try {
+    const refreshed = await runtime2.refresh()
+    assert.equal(refreshed.showQuotaSection, false)
+
+    // Updating plugin setting showQuotaSection overrides stored value immediately
+    fake2.settings.showQuotaSection = true
+    fake2.emitSettingsChange('showQuotaSection')
+    await new Promise((resolve) => setTimeout(resolve, 15))
+    assert.equal(runtime2.state().showQuotaSection, true)
+
+    fake2.settings.showQuotaSection = false
+    fake2.emitSettingsChange('showQuotaSection')
+    await new Promise((resolve) => setTimeout(resolve, 15))
+    assert.equal(runtime2.state().showQuotaSection, false)
+  } finally {
+    runtime2.stop()
   }
 })
