@@ -473,13 +473,18 @@ test('handles overrideModel, approve, handoff, cancel, openWorkspace, and a2uiSn
     assert.equal(overridden.pending[0]?.selectedModelId, 'antigravity/claude-sonnet-5-5-high:high')
     assert.equal(overridden.pending[0]?.agent, 'antigravity')
 
-    // approve (new worktree -> worker-start via runCommand)
+    // approve (new worktree -> headless worktree create via runCommand)
     const approveHandler = fake.handlers.get('console.approve')
     assert.ok(approveHandler)
     const approved = (await approveHandler({ taskId: '#T1' })) as ConsoleState
     assert.equal(approved.pending.length, 0)
     assert.ok(approved.workers.some((w) => w.taskId === '#T1' && w.status === 'working'))
-    assert.ok(commandCalls.some((c) => c.args.includes('worker-start')))
+    const approveCall = commandCalls.find((c) => c.args[0] === 'worktree' && c.args[1] === 'create')
+    assert.ok(approveCall)
+    assert.equal(approveCall.args.includes('--activate'), false)
+    assert.equal(approveCall.args.includes('--model'), true)
+    assert.equal(approveCall.args.includes('--prompt'), true)
+    assert.equal(approveCall.args.includes('worker-start'), false)
 
     // openWorkspace
     const openHandler = fake.handlers.get('console.openWorkspace')
@@ -667,10 +672,12 @@ test('dispatches track3 tasks as Track 3 even via console.approve, forwards mode
 
     await fakeMatched.handlers.get('console.approve')!({ taskId: '#T10' })
     assert.equal(matchedCalls.length, 1)
-    assert.equal(matchedCalls[0]?.args.includes('worker-start'), true)
+    assert.deepEqual(matchedCalls[0]?.args.slice(0, 2), ['agent', 'launch'])
     assert.equal(matchedCalls[0]?.args.includes('id:ws-obs-existing'), true)
     assert.equal(matchedCalls[0]?.args.includes('gpt-6-astra'), true)
     assert.equal(matchedCalls[0]?.args.includes('high'), true)
+    assert.equal(matchedCalls[0]?.args.includes('--focus'), false)
+    assert.equal(matchedCalls[0]?.args.includes('worker-start'), false)
     assert.equal(
       matchedCalls[0]?.args.includes('기존 워크트리 obs-validation-followup의 회귀 테스트를 실행하라.'),
       true

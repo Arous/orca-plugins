@@ -554,6 +554,7 @@ function parseWorkspaceIdFromStdout(stdout: string): string | null {
     if (typeof parsed.worktreeId === 'string' && parsed.worktreeId) return parsed.worktreeId
     const result = parsed.result as Record<string, unknown> | undefined
     if (result && typeof result.workspaceId === 'string' && result.workspaceId) return result.workspaceId
+    if (result && typeof result.worktreeId === 'string' && result.worktreeId) return result.worktreeId
     const wt = result?.worktree as Record<string, unknown> | undefined
     if (wt && typeof wt.id === 'string' && wt.id) return wt.id
   } catch {
@@ -970,41 +971,23 @@ export function createRuntime(orca: OrcaWorkerApi, deps: RuntimeDeps = {}): Cons
         targetWorktreeName = matchedWorkspace.name
         targetBranch = matchedWorkspace.branch ?? matchedWorkspace.name
 
-        cliArgs = useTrack3
-          ? [
-              'agent',
-              'launch',
-              '--worktree',
-              `id:${matchedWorkspace.id}`,
-              '--agent',
-              task.agent,
-              '--model',
-              task.model,
-              ...effortArgs,
-              '--surface',
-              'chat',
-              '--focus',
-              '--prompt',
-              task.spec,
-              '--json'
-            ]
-          : [
-              'orchestration',
-              'worker-start',
-              '--environment',
-              'local',
-              '--worktree',
-              `id:${matchedWorkspace.id}`,
-              '--agent',
-              task.agent,
-              '--model',
-              task.model,
-              ...effortArgs,
-              '--spec',
-              task.spec,
-              '--keep-open',
-              '--json'
-            ]
+        cliArgs = [
+          'agent',
+          'launch',
+          '--worktree',
+          `id:${matchedWorkspace.id}`,
+          '--agent',
+          task.agent,
+          '--model',
+          task.model,
+          ...effortArgs,
+          '--surface',
+          'chat',
+          ...(useTrack3 ? ['--focus'] : []),
+          '--prompt',
+          task.spec,
+          '--json'
+        ]
       } else {
         if (!matchedProject) {
           throw withErrorCode(
@@ -1016,48 +999,26 @@ export function createRuntime(orca: OrcaWorkerApi, deps: RuntimeDeps = {}): Cons
           ? `path:${matchedProject.path}`
           : `id:${matchedProject.id}`
 
-        cliArgs = useTrack3
-          ? [
-              'worktree',
-              'create',
-              '--repo',
-              repoSelector,
-              '--name',
-              task.worktreeName,
-              '--no-parent',
-              '--agent',
-              task.agent,
-              '--model',
-              task.model,
-              ...effortArgs,
-              '--surface',
-              'chat',
-              '--activate',
-              '--prompt',
-              task.spec,
-              '--json'
-            ]
-          : [
-              'orchestration',
-              'worker-start',
-              '--environment',
-              'local',
-              '--worktree',
-              'new-top-level',
-              '--repo',
-              repoSelector,
-              '--name',
-              task.worktreeName,
-              '--agent',
-              task.agent,
-              '--model',
-              task.model,
-              ...effortArgs,
-              '--spec',
-              task.spec,
-              '--keep-open',
-              '--json'
-            ]
+        cliArgs = [
+          'worktree',
+          'create',
+          '--repo',
+          repoSelector,
+          '--name',
+          task.worktreeName,
+          '--no-parent',
+          '--agent',
+          task.agent,
+          '--model',
+          task.model,
+          ...effortArgs,
+          '--surface',
+          'chat',
+          ...(useTrack3 ? ['--activate'] : []),
+          '--prompt',
+          task.spec,
+          '--json'
+        ]
       }
 
       const cliController = new AbortController()
