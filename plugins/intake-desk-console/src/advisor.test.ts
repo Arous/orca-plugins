@@ -95,3 +95,24 @@ test('formats quota, PAYG, cost, and status bar summary', () => {
   assert.equal(formatTaskCost('payg', 0.08), '종량제 ~$0.08')
   assert.equal(statusBarText(readyConsoleState), 'Desk 대기 1 · 워커 2')
 })
+
+test('normalizes unknown quota status, track, worktreeMode, and preserves optional worktree', () => {
+  const payload = {
+    ...liveAdvisorPayload,
+    quotas: [{ ...liveAdvisorPayload.quotas[0], status: 'mystery_state' }],
+    recommendation: {
+      ...liveAdvisorPayload.recommendation!,
+      track: 'track99',
+      worktreeMode: 'custom_mode',
+      worktree: 'desk-existing-wt'
+    }
+  }
+  const parsed = parseAdvisorPayload(JSON.stringify(payload))
+  assert.equal(parsed.ok, true)
+  if (parsed.ok) {
+    assert.equal(parsed.payload.quotas[0]?.status, 'unknown')
+    assert.equal(parsed.payload.recommendation?.track, 'track2')
+    assert.equal(parsed.payload.recommendation?.worktreeMode, 'new')
+    assert.equal(parsed.payload.recommendation?.worktree, 'desk-existing-wt')
+  }
+})

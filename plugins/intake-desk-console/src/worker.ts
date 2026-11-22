@@ -186,23 +186,49 @@ function buildOptionsFromRecommendation(rec: AdvisorRecommendation): ModelOption
   return options
 }
 
+function findMatchingWorkspace(
+  workspaces: WorkspaceRow[],
+  target: string | null | undefined
+): WorkspaceRow | null {
+  const normalized = target?.trim().replace(/[\\/]+$/, '')
+  if (!normalized) return null
+  return (
+    workspaces.find((ws) => {
+      if (ws.name === normalized || ws.branch === normalized) return true
+      const wsPath = ws.path.replace(/[\\/]+$/, '')
+      return (
+        wsPath === normalized ||
+        wsPath.endsWith(`/${normalized}`) ||
+        wsPath.endsWith(`\\${normalized}`)
+      )
+    }) ?? null
+  )
+}
+
 function recommendationToPendingTask(
   rec: AdvisorRecommendation,
   projects: ProjectRow[],
+  workspaces: WorkspaceRow[],
   nowMs: number
 ): PendingTask {
   const slug = rec.taskId.replace(/[^a-zA-Z0-9_-]+/g, '').toLowerCase() || 'task'
-  const defaultProject = projects[0] ?? null
+  const matchedWorkspace =
+    rec.worktreeMode === 'existing' ? findMatchingWorkspace(workspaces, rec.worktree) : null
+  const matchedProject = matchedWorkspace?.projectId
+    ? projects.find((p) => p.id === matchedWorkspace.projectId) ?? null
+    : null
+  const defaultProject = matchedProject ?? projects[0] ?? null
   const options = buildOptionsFromRecommendation(rec)
   const primary = options[0]
+  const fallbackWorktreeName = rec.worktree?.trim() || `desk-${slug}`
   return {
     taskId: rec.taskId,
-    domain: defaultProject?.name ?? 'Intake Desk',
-    projectId: defaultProject?.id ?? null,
-    workspaceId: null,
+    domain: matchedProject?.name ?? matchedWorkspace?.project ?? defaultProject?.name ?? 'Intake Desk',
+    projectId: matchedWorkspace?.projectId ?? defaultProject?.id ?? null,
+    workspaceId: matchedWorkspace?.id ?? null,
     track: rec.track,
     worktreeMode: rec.worktreeMode,
-    worktreeName: `desk-${slug}`,
+    worktreeName: matchedWorkspace?.name ?? fallbackWorktreeName,
     title: rec.oneLine || `${rec.taskId} 라우팅 승인`,
     selectedModelId: primary?.modelId ?? formatModelId(rec.agent, rec.model, rec.effort),
     agent: rec.agent,
@@ -373,6 +399,20 @@ export function createRuntime(orca: OrcaWorkerApi, deps: RuntimeDeps = {}): Cons
     timer.unref()
   }
 
+  function settingsFailure(keepSample: boolean): ConsoleState {
+    settingsReady = false
+    state = {
+      ...state,
+      revision: ++revision,
+      status: keepSample && state.advisor ? 'stale' : 'error',
+      error: '플러그인 설정을 읽지 못했습니다.',
+      refreshing: false
+    }
+    publish()
+    schedule()
+    return state
+  }
+
   function adoptSettings(next: RuntimeSettings): boolean {
     const pathChanged = next.advisorScriptPath !== settings.advisorScriptPath
     settings = next
@@ -432,16 +472,7 @@ export function createRuntime(orca: OrcaWorkerApi, deps: RuntimeDeps = {}): Cons
             if (!stopped) schedule()
             return state
           }
-          state = {
-            ...state,
-            revision: ++revision,
-            status: state.advisor ? 'stale' : 'error',
-            error: '플러그인 설정을 읽지 못했습니다.',
-            refreshing: false
-          }
-          publish()
-          schedule()
-          return state
+          return settingsFailure(Boolean(state.advisor))
         }
       }
 
@@ -485,7 +516,12 @@ export function createRuntime(orca: OrcaWorkerApi, deps: RuntimeDeps = {}): Cons
             !dismissedTaskIds.has(rec.taskId)
           ) {
             pendingQueue = [
-              recommendationToPendingTask(rec, hostSnapshot.projects, now()),
+              recommendationToPendingTask(
+                rec,
+                hostSnapshot.projects,
+                hostSnapshot.workspaces,
+                now()
+              ),
               ...pendingQueue
             ]
             await persist()
@@ -741,14 +777,7 @@ export function createRuntime(orca: OrcaWorkerApi, deps: RuntimeDeps = {}): Cons
       next = await readSettings(orca)
     } catch {
       if (stopped || request !== settingsRequest) return
-      state = {
-        ...state,
-        revision: ++revision,
-        status: state.advisor ? 'stale' : 'error',
-        error: '플러그인 설정을 읽지 못했습니다.'
-      }
-      publish()
-      schedule()
+      settingsFailure(Boolean(state.advisor))
       return
     }
     if (stopped || request !== settingsRequest) return
@@ -833,14 +862,7 @@ export function createRuntime(orca: OrcaWorkerApi, deps: RuntimeDeps = {}): Cons
         if (!stopped) schedule()
         return
       }
-      state = {
-        ...state,
-        revision: ++revision,
-        status: 'error',
-        error: '플러그인 설정을 읽지 못했습니다.'
-      }
-      publish()
-      schedule()
+      settingsFailure(false)
       return
     }
 

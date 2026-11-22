@@ -6,6 +6,15 @@ export const A2UI_SURFACE_ID = 'intake_desk_console'
 export const A2UI_CATALOG_ID = 'orca.intake_desk.v1'
 
 export type BillingType = 'subscription' | 'payg'
+export type AdvisorQuotaStatus =
+  | 'ok'
+  | 'rate_limited'
+  | 'exhausted'
+  | 'expiring'
+  | 'unavailable'
+  | 'unknown'
+export type RecommendationTrack = 'track2' | 'track3'
+export type WorktreeMode = 'new' | 'existing'
 
 export type AdvisorFallbackEntry = {
   agent: string
@@ -25,7 +34,7 @@ export type AdvisorQuota = {
   provider: string
   label: string
   billingType: BillingType
-  status: string
+  status: AdvisorQuotaStatus
   sessionUsedPct: number | null
   weeklyUsedPct: number | null
   monthlyUsedPct: number | null
@@ -57,8 +66,9 @@ export type AdvisorAlternative = {
 
 export type AdvisorRecommendation = {
   taskId: string
-  track: string
-  worktreeMode: string
+  track: RecommendationTrack
+  worktreeMode: WorktreeMode
+  worktree?: string | null
   routeId: string
   agent: string
   model: string
@@ -100,8 +110,8 @@ export type PendingTask = {
   domain: string
   projectId: string | null
   workspaceId: string | null
-  track: string
-  worktreeMode: string
+  track: RecommendationTrack
+  worktreeMode: WorktreeMode
   worktreeName: string
   title: string
   selectedModelId: string

@@ -18,6 +18,7 @@ type StatusBarCall = {
 
 function fakeOrca(options: {
   settings?: Record<string, unknown>
+  failSettings?: boolean
   storage?: Record<string, unknown>
   projects?: { id: string; name: string; kind: 'git' | 'folder'; hostId: string | null; path: string; hidden?: boolean }[]
   workspaces?: {
@@ -42,6 +43,7 @@ function fakeOrca(options: {
     pollSeconds: 30,
     ...options.settings
   }
+  let settingsUnavailable = Boolean(options.failSettings)
   const storage = new Map<string, unknown>(Object.entries(options.storage ?? {}))
   const handlers = new Map<string, (input?: unknown) => unknown>()
   const eventHandlers = new Map<string, Array<(payload: unknown) => unknown>>()
@@ -135,7 +137,10 @@ function fakeOrca(options: {
       onDidChange: () => disposable
     },
     settings: {
-      get: async (key?: string) => (key === undefined ? { ...settings } : settings[key]),
+      get: async (key?: string) => {
+        if (settingsUnavailable) throw new Error('settings unavailable')
+        return key === undefined ? { ...settings } : settings[key]
+      },
       set: async (key: string, value: unknown) => {
         settings[key] = value
       },
@@ -172,6 +177,9 @@ function fakeOrca(options: {
     statusBar,
     hostCalls,
     workspaces,
+    setSettingsFailure: (value: boolean) => {
+      settingsUnavailable = value
+    },
     emitEvent: async (event: string, payload: unknown) => {
       for (const listener of eventHandlers.get(event) ?? []) {
         await listener(payload)
@@ -378,5 +386,152 @@ test('refreshes workspace board when workspace or agent status events arrive', a
     assert.ok(current.workers.some((w) => w.workspaceId === 'ws-bots-03' && w.status === 'permission'))
   } finally {
     runtime.stop()
+  }
+})
+
+test('handles settings read failure via single settingsFailure transition and recovers on retry', async () => {
+  const fake = fakeOrca({ failSettings: true })
+  let advisorCalls = 0
+  const runtime = createRuntime(fake.orca, {
+    collectAdvisor: async () => {
+      advisorCalls += 1
+      return { ok: true, payload: liveAdvisorPayload }
+    },
+    now: () => 1_795_280_000_000
+  })
+  await runtime.start()
+  try {
+    assert.equal(runtime.state().status, 'error')
+    assert.equal(runtime.state().error, '플러그인 설정을 읽지 못했습니다.')
+    assert.equal(advisorCalls, 0)
+    assert.equal(fake.statusBar.at(-1)?.tone, 'danger')
+
+    fake.setSettingsFailure(false)
+    const recovered = await runtime.refresh()
+    assert.equal(recovered.status, 'ready')
+    assert.equal(advisorCalls, 1)
+
+    fake.setSettingsFailure(true)
+    await runtime.reloadSettings()
+    assert.equal(runtime.state().status, 'stale')
+    assert.equal(runtime.state().error, '플러그인 설정을 읽지 못했습니다.')
+    assert.equal(fake.statusBar.at(-1)?.tone, 'warning')
+
+    fake.setSettingsFailure(false)
+    const retried = await runtime.refresh()
+    assert.equal(retried.status, 'ready')
+    assert.equal(advisorCalls, 2)
+  } finally {
+    runtime.stop()
+  }
+})
+
+test('matches existing workspaceId by name, branch, or path suffix when worktreeMode is existing', async () => {
+  // 1. Match by path suffix and verify approve calls agent.launch instead of worker-start CLI
+  const fakeByPath = fakeOrca({
+    workspaces: [
+      {
+        id: 'ws-obs-existing',
+        kind: 'worktree',
+        name: 'obs-followup',
+        project: 'ObsidianAutomation',
+        projectId: 'proj-obs',
+        path: '/Users/test/wt/tcm-validation-followup-terra',
+        branch: 'feat/followup',
+        hostId: 'local',
+        status: { state: 'inactive', unread: false, terminalCount: 0, lastActivityAt: null }
+      }
+    ]
+  })
+  let cliCalled = false
+  const runtimePath = createRuntime(fakeByPath.orca, {
+    collectAdvisor: async () => ({
+      ok: true,
+      payload: {
+        ...liveAdvisorPayload,
+        recommendation: {
+          ...liveAdvisorPayload.recommendation!,
+          taskId: '#T10',
+          track: 'track2',
+          worktreeMode: 'existing',
+          worktree: 'tcm-validation-followup-terra'
+        }
+      }
+    }),
+    runCommand: async () => {
+      cliCalled = true
+      return { exitCode: 0, stdout: '{}', stderr: '' }
+    },
+    now: () => 1_795_280_000_000
+  })
+  await runtimePath.start()
+  try {
+    const refreshed = await runtimePath.refresh()
+    const task = refreshed.pending.find((p) => p.taskId === '#T10')
+    assert.ok(task)
+    assert.equal(task.workspaceId, 'ws-obs-existing')
+    assert.equal(task.domain, 'ObsidianAutomation')
+    assert.equal(task.projectId, 'proj-obs')
+
+    await fakeByPath.handlers.get('console.approve')!({ taskId: '#T10' })
+    assert.equal(cliCalled, false)
+    assert.ok(
+      fakeByPath.hostCalls.some(
+        (c) =>
+          c.method === 'agent.launch' &&
+          (c.params as { workspaceId: string }).workspaceId === 'ws-obs-existing'
+      )
+    )
+  } finally {
+    runtimePath.stop()
+  }
+
+  // 2. Match by branch, and keep null safely when no workspace matches
+  const fakeByBranch = fakeOrca()
+  const runtimeBranch = createRuntime(fakeByBranch.orca, {
+    collectAdvisor: async () => ({
+      ok: true,
+      payload: {
+        ...liveAdvisorPayload,
+        recommendation: {
+          ...liveAdvisorPayload.recommendation!,
+          taskId: '#T11',
+          worktreeMode: 'existing',
+          worktree: 'desk-obs-dedup'
+        }
+      }
+    }),
+    now: () => 1_795_280_000_000
+  })
+  await runtimeBranch.start()
+  try {
+    const state = await runtimeBranch.refresh()
+    assert.equal(state.pending.find((p) => p.taskId === '#T11')?.workspaceId, 'ws-obs-01')
+  } finally {
+    runtimeBranch.stop()
+  }
+
+  const fakeUnmatched = fakeOrca()
+  const runtimeUnmatched = createRuntime(fakeUnmatched.orca, {
+    collectAdvisor: async () => ({
+      ok: true,
+      payload: {
+        ...liveAdvisorPayload,
+        recommendation: {
+          ...liveAdvisorPayload.recommendation!,
+          taskId: '#T12',
+          worktreeMode: 'existing',
+          worktree: 'nonexistent-worktree'
+        }
+      }
+    }),
+    now: () => 1_795_280_000_000
+  })
+  await runtimeUnmatched.start()
+  try {
+    const state = await runtimeUnmatched.refresh()
+    assert.equal(state.pending.find((p) => p.taskId === '#T12')?.workspaceId, null)
+  } finally {
+    runtimeUnmatched.stop()
   }
 })

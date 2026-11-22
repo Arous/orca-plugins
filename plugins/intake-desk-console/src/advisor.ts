@@ -9,8 +9,11 @@ import type {
   AdvisorPaygEntry,
   AdvisorPayload,
   AdvisorQuota,
+  AdvisorQuotaStatus,
   AdvisorRecommendation,
-  BillingType
+  BillingType,
+  RecommendationTrack,
+  WorktreeMode
 } from './protocol'
 
 const ADVISOR_TIMEOUT_MS = 10_000
@@ -74,6 +77,33 @@ function asBillingType(value: unknown): BillingType {
   return value === 'payg' ? 'payg' : 'subscription'
 }
 
+const KNOWN_QUOTA_STATUSES: ReadonlySet<AdvisorQuotaStatus> = new Set([
+  'ok',
+  'rate_limited',
+  'exhausted',
+  'expiring',
+  'unavailable',
+  'unknown'
+])
+
+function asQuotaStatus(value: unknown): AdvisorQuotaStatus {
+  if (typeof value !== 'string') return 'ok'
+  return KNOWN_QUOTA_STATUSES.has(value as AdvisorQuotaStatus)
+    ? (value as AdvisorQuotaStatus)
+    : 'unknown'
+}
+
+function asRecommendationTrack(value: unknown): RecommendationTrack {
+  if (typeof value === 'string' && value.trim().toLowerCase().replace(/\s+/g, '') === 'track3') {
+    return 'track3'
+  }
+  return 'track2'
+}
+
+function asWorktreeMode(value: unknown): WorktreeMode {
+  return value === 'existing' ? 'existing' : 'new'
+}
+
 function asStringArray(value: unknown): string[] | null {
   if (!Array.isArray(value)) return null
   return value.filter((item): item is string => typeof item === 'string')
@@ -121,7 +151,7 @@ function parseQuotas(raw: unknown): AdvisorQuota[] | null {
       provider,
       label,
       billingType: asBillingType(item.billingType),
-      status: asString(item.status, 'ok'),
+      status: asQuotaStatus(item.status),
       sessionUsedPct: asNullableNumber(item.sessionUsedPct),
       weeklyUsedPct: asNullableNumber(item.weeklyUsedPct),
       monthlyUsedPct: asNullableNumber(item.monthlyUsedPct),
@@ -184,8 +214,9 @@ function parseRecommendation(raw: unknown): AdvisorRecommendation | null | undef
   if (!taskId || !routeId || !agent || !model) return undefined
   return {
     taskId,
-    track: asString(raw.track, 'track2'),
-    worktreeMode: asString(raw.worktreeMode, 'new'),
+    track: asRecommendationTrack(raw.track),
+    worktreeMode: asWorktreeMode(raw.worktreeMode),
+    worktree: asNullableString(raw.worktree),
     routeId,
     agent,
     model,
