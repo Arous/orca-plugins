@@ -111,7 +111,9 @@ test('wires Select override, approve, handoff, cancel, and openWorkspace actions
     assert.ok(calls.some((c) => c.name === 'console.openWorkspace'))
 
     await view.press({ text: '승인' })
-    assert.ok(calls.some((c) => c.name === 'console.approve'))
+    const approveCall = calls.find((c) => c.name === 'console.approve')
+    assert.ok(approveCall)
+    assert.equal((approveCall.input as { createdAt?: number }).createdAt, readyConsoleState.pending[0]?.createdAt)
     assert.ok(JSON.stringify(view.tree()).includes('대기 중인 승인이 없습니다'))
 
     assert.deepEqual(view.errors, [])

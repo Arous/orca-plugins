@@ -313,7 +313,11 @@ export default function Panel() {
           <EmptyState title="대기 중인 승인이 없습니다" icon="check" />
         ) : (
           current.pending.map((task) => (
-            <Card key={task.taskId} title={`${task.taskId} · ${task.domain}`} description={task.title}>
+            <Card
+              key={`${task.taskId}@${task.createdAt}`}
+              title={`${task.taskId} · ${task.domain}`}
+              description={task.title}
+            >
               <Stack gap="sm">
                 <Row gap="xs" wrap align="center">
                   <Badge tone="accent">{task.track === 'track3' ? 'Track 3' : 'Track 2'}</Badge>
@@ -344,6 +348,7 @@ export default function Panel() {
                       () =>
                         plugin.request('console.overrideModel', {
                           taskId: task.taskId,
+                          createdAt: task.createdAt,
                           modelId: value
                         }),
                       '모델 변경에 실패했습니다.'
@@ -362,6 +367,7 @@ export default function Panel() {
                         () =>
                           plugin.request('console.approve', {
                             taskId: task.taskId,
+                            createdAt: task.createdAt,
                             modelId: task.selectedModelId
                           }),
                         '작업 승인에 실패했습니다.'
@@ -379,6 +385,7 @@ export default function Panel() {
                         () =>
                           plugin.request('console.handoff', {
                             taskId: task.taskId,
+                            createdAt: task.createdAt,
                             modelId: task.selectedModelId
                           }),
                         '직접 열기에 실패했습니다.'
@@ -394,7 +401,11 @@ export default function Panel() {
                     disabled={loading}
                     onPress={() =>
                       runAction(
-                        () => plugin.request('console.cancel', { taskId: task.taskId }),
+                        () =>
+                          plugin.request('console.cancel', {
+                            taskId: task.taskId,
+                            createdAt: task.createdAt
+                          }),
                         '작업 취소에 실패했습니다.'
                       )
                     }

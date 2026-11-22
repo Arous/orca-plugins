@@ -230,21 +230,25 @@ export type A2UIMessage =
 
 export type ApproveTaskInput = {
   taskId: string
+  createdAt?: number
   modelId?: string
 }
 
 export type OverrideModelInput = {
   taskId: string
+  createdAt?: number
   modelId: string
 }
 
 export type HandoffTaskInput = {
   taskId: string
+  createdAt?: number
   modelId?: string
 }
 
 export type CancelTaskInput = {
   taskId: string
+  createdAt?: number
 }
 
 export type OpenWorkspaceInput = {

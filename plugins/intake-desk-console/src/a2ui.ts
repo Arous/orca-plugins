@@ -54,8 +54,16 @@ export function buildA2UISurfacePayload(state: ConsoleState): A2UIMessage[] {
     })
   }
 
+  const taskIdCounts = new Map<string, number>()
   for (const task of state.pending) {
-    const id = `pending-${task.taskId}`
+    taskIdCounts.set(task.taskId, (taskIdCounts.get(task.taskId) ?? 0) + 1)
+  }
+
+  for (const task of state.pending) {
+    const id =
+      (taskIdCounts.get(task.taskId) ?? 0) > 1
+        ? `pending-${task.taskId}-${task.createdAt}`
+        : `pending-${task.taskId}`
     pendingIds.push(id)
     components.push({
       id,
@@ -64,9 +72,18 @@ export function buildA2UISurfacePayload(state: ConsoleState): A2UIMessage[] {
           title: `${task.taskId} · ${task.title}`,
           subtitle: `${task.domain} · ${task.selectedModelId}`,
           actions: [
-            { label: '승인', action: { name: 'approveTask', context: { taskId: task.taskId } } },
-            { label: '직접 열기', action: { name: 'handoffTask', context: { taskId: task.taskId } } },
-            { label: '취소', action: { name: 'cancelTask', context: { taskId: task.taskId } } }
+            {
+              label: '승인',
+              action: { name: 'approveTask', context: { taskId: task.taskId, createdAt: task.createdAt } }
+            },
+            {
+              label: '직접 열기',
+              action: { name: 'handoffTask', context: { taskId: task.taskId, createdAt: task.createdAt } }
+            },
+            {
+              label: '취소',
+              action: { name: 'cancelTask', context: { taskId: task.taskId, createdAt: task.createdAt } }
+            }
           ]
         }
       }
@@ -222,6 +239,7 @@ export function buildA2UISurfacePayload(state: ConsoleState): A2UIMessage[] {
           totalWorkspaceCount: state.workers.length,
           pending: state.pending.map((p) => ({
             taskId: p.taskId,
+            createdAt: p.createdAt,
             domain: p.domain,
             track: p.track,
             worktreeMode: p.worktreeMode,

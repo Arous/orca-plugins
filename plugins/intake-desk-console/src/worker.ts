@@ -256,6 +256,27 @@ function taskInstanceKey(taskId: string, createdAt: number): string {
   return `${taskId}@${createdAt}`
 }
 
+function findPendingTaskIndex(
+  queue: PendingTask[],
+  taskId: string,
+  createdAt?: number
+): number {
+  if (createdAt !== undefined) {
+    return queue.findIndex((p) => p.taskId === taskId && p.createdAt === createdAt)
+  }
+  const indices: number[] = []
+  for (let i = 0; i < queue.length; i += 1) {
+    if (queue[i]?.taskId === taskId) indices.push(i)
+  }
+  if (indices.length > 1) {
+    throw withErrorCode(
+      `동일한 작업 ID(${taskId})가 ${indices.length}건 대기 중입니다. createdAt을 지정하세요.`,
+      'conflict'
+    )
+  }
+  return indices[0] ?? -1
+}
+
 function resolveProject(
   projects: ProjectRow[],
   criteria: { projectId?: string | null; domain?: string | null }
@@ -877,7 +898,7 @@ export function createRuntime(orca: OrcaWorkerApi, deps: RuntimeDeps = {}): Cons
   }
 
   async function overrideModel(input: OverrideModelInput): Promise<ConsoleState> {
-    const idx = pendingQueue.findIndex((p) => p.taskId === input.taskId)
+    const idx = findPendingTaskIndex(pendingQueue, input.taskId, input.createdAt)
     if (idx === -1) throw withErrorCode(`대기 작업 ${input.taskId}를 찾을 수 없습니다.`, 'invalid_params')
 
     pendingQueue = pendingQueue.map((task, index) =>
@@ -897,14 +918,14 @@ export function createRuntime(orca: OrcaWorkerApi, deps: RuntimeDeps = {}): Cons
     input: ApproveTaskInput | HandoffTaskInput,
     forceTrack3: boolean
   ): Promise<ConsoleState> {
-    if (dispatchingTaskIds.has(input.taskId)) {
-      throw withErrorCode(`작업 ${input.taskId}가 이미 실행 중입니다.`, 'conflict')
-    }
-
-    const idx = pendingQueue.findIndex((p) => p.taskId === input.taskId)
+    const idx = findPendingTaskIndex(pendingQueue, input.taskId, input.createdAt)
     if (idx === -1) throw withErrorCode(`대기 작업 ${input.taskId}를 찾을 수 없습니다.`, 'invalid_params')
 
     let task = pendingQueue[idx]
+    const instanceKey = taskInstanceKey(task.taskId, task.createdAt)
+    if (dispatchingTaskIds.has(instanceKey)) {
+      throw withErrorCode(`작업 ${task.taskId}가 이미 실행 중입니다.`, 'conflict')
+    }
     if (input.modelId) {
       task = applyModelOverride(task, input.modelId)
     }
@@ -915,7 +936,7 @@ export function createRuntime(orca: OrcaWorkerApi, deps: RuntimeDeps = {}): Cons
     const useTrack3 = forceTrack3 || task.track === 'track3'
     const effortArgs = buildEffortArgs(task.effort)
 
-    dispatchingTaskIds.add(task.taskId)
+    dispatchingTaskIds.add(instanceKey)
     try {
       const hostSnapshot = await fetchProjectsAndWorkspaces()
       const matchedProject = resolveProject(hostSnapshot.projects, {
@@ -1052,7 +1073,6 @@ export function createRuntime(orca: OrcaWorkerApi, deps: RuntimeDeps = {}): Cons
       }
 
       const resolvedWorkspaceId = targetWorkspaceId ?? parseWorkspaceIdFromStdout(res.stdout)
-      const instanceKey = taskInstanceKey(task.taskId, task.createdAt)
       const handledAt = now()
 
       pendingQueue = pendingQueue.filter(
@@ -1112,12 +1132,12 @@ export function createRuntime(orca: OrcaWorkerApi, deps: RuntimeDeps = {}): Cons
 
       return state
     } finally {
-      dispatchingTaskIds.delete(task.taskId)
+      dispatchingTaskIds.delete(instanceKey)
     }
   }
 
   async function cancelTask(input: CancelTaskInput): Promise<ConsoleState> {
-    const idx = pendingQueue.findIndex((p) => p.taskId === input.taskId)
+    const idx = findPendingTaskIndex(pendingQueue, input.taskId, input.createdAt)
     if (idx === -1) throw withErrorCode(`대기 작업 ${input.taskId}를 찾을 수 없습니다.`, 'invalid_params')
 
     const task = pendingQueue[idx]

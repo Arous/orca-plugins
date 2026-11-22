@@ -354,6 +354,39 @@ test('reads pending-approvals.json read-only, isolates concurrent bot appends vi
         afterReuse.pending.map((p) => p.taskId),
         ['#T2', '#T1']
       )
+
+      // Even if TWO concurrent #T1 instances exist with distinct createdAt, approve/cancel disambiguates exact instance
+      const secondDuplicateT1: PendingQueueFileItem = {
+        ...item1,
+        taskId: '#T1',
+        worktreeName: 'desk-tcm-dup-second',
+        spec: '두 번째 동일 #T1 인스턴스만 정확히 실행되어야 한다.',
+        createdAt: 1_795_295_000_000
+      }
+      writeFileSync(
+        queuePath,
+        JSON.stringify({ schemaVersion: 1, items: [reusedT1, secondDuplicateT1] }, null, 2)
+      )
+      const dupLoaded = await runtime.refresh()
+      assert.equal(dupLoaded.pending.length, 2)
+
+      // Bare taskId without createdAt rejects as ambiguous conflict
+      let ambCode: string | undefined
+      try {
+        await fake.handlers.get('console.approve')!({ taskId: '#T1' })
+      } catch (error) {
+        ambCode = (error as { code?: string }).code
+      }
+      assert.equal(ambCode, 'conflict')
+
+      // Explicit createdAt targets ONLY the second instance, leaving first instance intact
+      const approvedSecond = (await fake.handlers.get('console.approve')!({
+        taskId: '#T1',
+        createdAt: secondDuplicateT1.createdAt
+      })) as ConsoleState
+      assert.equal(approvedSecond.pending.length, 1)
+      assert.equal(approvedSecond.pending[0]?.createdAt, reusedT1.createdAt)
+      assert.ok(commandCalls.at(-1)?.args.includes(secondDuplicateT1.spec))
     } finally {
       runtime.stop()
     }
