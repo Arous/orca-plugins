@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process'
-import { access, mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises'
+import { access, mkdir, open, readFile, rename, stat, unlink, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, resolve } from 'node:path'
 import type {
@@ -13,6 +13,7 @@ import type {
   AdvisorRecommendation,
   BillingType,
   ModelOption,
+  PendingQueueAckEntry,
   PendingQueueFileItem,
   RecommendationTrack,
   WorktreeMode
@@ -534,45 +535,109 @@ export async function readPendingQueueFile(queuePath: string): Promise<PendingQu
   }
 }
 
-export async function removePendingQueueItemFile(queuePath: string, taskId: string): Promise<void> {
+export function pendingQueueAckPath(queuePath: string): string {
   const trimmed = queuePath.trim()
-  if (!trimmed) return
+  if (!trimmed) return ''
   const resolved = expandHomePath(trimmed)
-  let rawText: string
-  try {
-    rawText = await readFile(resolved, 'utf8')
-  } catch (error) {
-    if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
-      return
+  return resolved.endsWith('.json')
+    ? `${resolved.slice(0, -5)}.handled.json`
+    : `${resolved}.handled.json`
+}
+
+function parseAckEntries(raw: unknown): PendingQueueAckEntry[] {
+  const list = isRecord(raw) ? raw.entries : raw
+  if (!Array.isArray(list)) return []
+  const out: PendingQueueAckEntry[] = []
+  for (const item of list) {
+    if (!isRecord(item)) continue
+    const taskId = asNullableString(item.taskId)?.trim()
+    const createdAt = asNullableNumber(item.createdAt)
+    const handledAt = asNullableNumber(item.handledAt)
+    const action = item.action
+    if (
+      !taskId ||
+      createdAt === null ||
+      handledAt === null ||
+      (action !== 'approved' && action !== 'handoff' && action !== 'cancelled')
+    ) {
+      continue
     }
-    throw error
+    out.push({ taskId, createdAt, action, handledAt })
   }
+  return out
+}
 
-  let parsed: unknown
+export async function readPendingQueueAckFile(queuePath: string): Promise<PendingQueueAckEntry[]> {
+  const ackPath = pendingQueueAckPath(queuePath)
+  if (!ackPath) return []
   try {
-    parsed = JSON.parse(rawText)
+    const text = await readFile(ackPath, 'utf8')
+    return parseAckEntries(JSON.parse(text))
   } catch {
-    return
+    return []
   }
+}
 
-  const nextItems = parsePendingQueueFileItems(parsed).filter((item) => item.taskId !== taskId)
-  const payload = `${JSON.stringify(
-    {
-      schemaVersion: 1,
-      updatedAt: new Date().toISOString(),
-      items: nextItems
-    },
-    null,
-    2
-  )}\n`
+async function acquireAdvisoryLock(lockPath: string): Promise<void> {
+  const maxAttempts = 20
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    try {
+      const fh = await open(lockPath, 'wx', 0o600)
+      await fh.close()
+      return
+    } catch (error) {
+      const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : ''
+      if (code !== 'EEXIST') throw error
+      try {
+        const st = await stat(lockPath)
+        if (Date.now() - st.mtimeMs > 10_000) {
+          await unlink(lockPath).catch(() => {})
+          continue
+        }
+      } catch {
+        continue
+      }
+      await new Promise((r) => setTimeout(r, 15))
+    }
+  }
+  throw new Error('pending queue ack lock busy')
+}
 
-  await mkdir(dirname(resolved), { recursive: true })
-  const tmpPath = `${resolved}.${process.pid}.${Date.now()}.tmp`
+export async function recordPendingQueueAckFile(
+  queuePath: string,
+  entry: PendingQueueAckEntry
+): Promise<void> {
+  const ackPath = pendingQueueAckPath(queuePath)
+  if (!ackPath) return
+  await mkdir(dirname(ackPath), { recursive: true })
+  const lockPath = `${ackPath}.lock`
+  await acquireAdvisoryLock(lockPath)
   try {
-    await writeFile(tmpPath, payload, { mode: 0o600 })
-    await rename(tmpPath, resolved)
-  } catch (error) {
-    await unlink(tmpPath).catch(() => {})
-    throw error
+    const existing = await readPendingQueueAckFile(queuePath)
+    const filtered = existing.filter(
+      (item) => !(item.taskId === entry.taskId && item.createdAt === entry.createdAt)
+    )
+    filtered.push(entry)
+    // Keep the most recent 200 handled entries to bound disk growth.
+    const bounded = filtered.slice(-200)
+    const payload = `${JSON.stringify(
+      {
+        schemaVersion: 1,
+        updatedAt: new Date(entry.handledAt).toISOString(),
+        entries: bounded
+      },
+      null,
+      2
+    )}\n`
+    const tmpPath = `${ackPath}.${process.pid}.${Date.now()}.tmp`
+    try {
+      await writeFile(tmpPath, payload, { mode: 0o600 })
+      await rename(tmpPath, ackPath)
+    } catch (error) {
+      await unlink(tmpPath).catch(() => {})
+      throw error
+    }
+  } finally {
+    await unlink(lockPath).catch(() => {})
   }
 }

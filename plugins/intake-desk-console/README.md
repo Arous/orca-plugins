@@ -17,7 +17,7 @@ Settings → Plugins → Intake Desk Console에서 설정합니다.
 | 키 | 기본값 | 설명 |
 | --- | --- | --- |
 | `advisorScriptPath` | `~/.orca/bots/intake-desk/scripts/route-advisor.mjs` | `route-advisor.mjs --json` 실행 경로 |
-| `pendingQueuePath` | `~/.orca/bots/intake-desk/memory/pending-approvals.json` | 승인 대기 큐 JSON 파일 경로 |
+| `pendingQueuePath` | `~/.orca/bots/intake-desk/memory/pending-approvals.json` | 승인 대기 큐 JSON 파일 경로(플러그인은 읽기 전용, 처리 기록은 sibling `.handled.json`에 분리 저장) |
 | `pollSeconds` | `30` | 상태 갱신 주기(15–300초) |
 
 ## 권한 및 경계

@@ -4,8 +4,9 @@ import { buildA2UISurfacePayload } from './a2ui'
 import {
   collectAdvisor,
   defaultCommandRunner,
+  readPendingQueueAckFile,
   readPendingQueueFile,
-  removePendingQueueItemFile,
+  recordPendingQueueAckFile,
   type AdvisorCollectResult,
   type CommandRunner
 } from './advisor'
@@ -24,6 +25,7 @@ import {
   type ModelOption,
   type OpenWorkspaceInput,
   type OverrideModelInput,
+  type PendingQueueAckEntry,
   type PendingQueueFileItem,
   type PendingTask,
   type WorkerBoardStatus,
@@ -32,7 +34,7 @@ import {
 
 const STORAGE_PENDING_KEY = 'intake-desk-console.pending'
 const STORAGE_WORKERS_KEY = 'intake-desk-console.workers'
-const STORAGE_DISMISSED_KEY = 'intake-desk-console.dismissed'
+const STORAGE_HANDLED_KEY = 'intake-desk-console.handled'
 const CLI_TIMEOUT_MS = 15_000
 
 export type AdvisorCollector = (
@@ -44,7 +46,8 @@ export type RuntimeDeps = {
   collectAdvisor?: AdvisorCollector
   runCommand?: CommandRunner
   readPendingQueue?: (queuePath: string) => Promise<PendingQueueFileItem[]>
-  removePendingQueueItem?: (queuePath: string, taskId: string) => Promise<void>
+  readPendingQueueAcks?: (queuePath: string) => Promise<PendingQueueAckEntry[]>
+  recordPendingQueueAck?: (queuePath: string, entry: PendingQueueAckEntry) => Promise<void>
   now?: () => number
 }
 
@@ -249,17 +252,20 @@ function isActiveWorkerStatus(status: WorkerBoardStatus): boolean {
   return status === 'working' || status === 'permission' || status === 'handoff' || status === 'done'
 }
 
+function taskInstanceKey(taskId: string, createdAt: number): string {
+  return `${taskId}@${createdAt}`
+}
+
 function resolveProject(
   projects: ProjectRow[],
   criteria: { projectId?: string | null; domain?: string | null }
 ): ProjectRow | null {
-  const visible = projects.filter((p) => !p.hidden)
-  const localVisible = visible.filter((p) => isLocalHost(p.hostId))
-  const pool = localVisible.length > 0 ? localVisible : visible
+  const pool = projects.filter((p) => !p.hidden && isLocalHost(p.hostId))
 
   if (criteria.projectId) {
     const byId = pool.find((p) => p.id === criteria.projectId)
     if (byId) return byId
+    return null
   }
 
   const domain = criteria.domain?.trim()
@@ -280,28 +286,33 @@ function findMatchingWorkspace(
     domain?: string | null
   }
 ): WorkspaceRow | null {
-  const worktrees = workspaces.filter((ws) => ws.kind === 'worktree')
-  if (criteria.workspaceId) {
-    return worktrees.find((ws) => ws.id === criteria.workspaceId) ?? null
-  }
+  const localWorktrees = workspaces.filter((ws) => ws.kind === 'worktree' && isLocalHost(ws.hostId))
 
-  const normalized = criteria.target?.trim().replace(/[\\/]+$/, '')
-  if (!normalized) return null
+  const domain = criteria.domain?.trim()
+  const hasDomainFilter = Boolean(domain && domain !== 'Intake Desk')
+  const hasProjectFilter = Boolean(criteria.projectId || hasDomainFilter)
+  const resolvedProj = hasProjectFilter
+    ? resolveProject(projects, {
+        projectId: criteria.projectId,
+        domain: hasDomainFilter ? domain : null
+      })
+    : null
 
-  const resolvedProj = resolveProject(projects, {
-    projectId: criteria.projectId,
-    domain: criteria.domain
-  })
-
-  let scoped = worktrees.filter((ws) => isLocalHost(ws.hostId))
+  let scoped = localWorktrees
   if (resolvedProj) {
     scoped = scoped.filter((ws) => ws.projectId === resolvedProj.id)
   } else if (criteria.projectId) {
     scoped = scoped.filter((ws) => ws.projectId === criteria.projectId)
-  } else if (criteria.domain && criteria.domain.trim() && criteria.domain !== 'Intake Desk') {
-    const domain = criteria.domain.trim()
+  } else if (hasDomainFilter && domain) {
     scoped = scoped.filter((ws) => ws.project === domain)
   }
+
+  if (criteria.workspaceId) {
+    return scoped.find((ws) => ws.id === criteria.workspaceId) ?? null
+  }
+
+  const normalized = criteria.target?.trim().replace(/[\\/]+$/, '')
+  if (!normalized) return null
 
   const matches = scoped.filter((ws) => {
     if (ws.name === normalized) return true
@@ -547,8 +558,12 @@ export function createRuntime(orca: OrcaWorkerApi, deps: RuntimeDeps = {}): Cons
   const collect =
     deps.collectAdvisor ??
     ((scriptPath: string, signal: AbortSignal) => collectAdvisor(scriptPath, signal, runCommand))
+  const useDiskQueue = !deps.readPendingQueue
   const readQueue = deps.readPendingQueue ?? readPendingQueueFile
-  const removeQueueItem = deps.removePendingQueueItem ?? removePendingQueueItemFile
+  const readQueueAcks =
+    deps.readPendingQueueAcks ?? (useDiskQueue ? readPendingQueueAckFile : async () => [])
+  const recordQueueAck =
+    deps.recordPendingQueueAck ?? (useDiskQueue ? recordPendingQueueAckFile : async () => {})
   const now = deps.now ?? Date.now
   const instanceId = randomUUID()
   const disposables: Disposable[] = []
@@ -563,7 +578,7 @@ export function createRuntime(orca: OrcaWorkerApi, deps: RuntimeDeps = {}): Cons
   let revision = 0
   let pendingQueue: PendingTask[] = []
   let localWorkers: WorkerItem[] = []
-  let dismissedTaskIds = new Set<string>()
+  let handledTaskKeys = new Set<string>()
   let timer: NodeJS.Timeout | undefined
   let settingsRequest = 0
   let inFlight: Promise<ConsoleState> | null = null
@@ -591,28 +606,31 @@ export function createRuntime(orca: OrcaWorkerApi, deps: RuntimeDeps = {}): Cons
       orca.storage.set(STORAGE_PENDING_KEY, pendingQueue as unknown as JsonValue),
       orca.storage.set(STORAGE_WORKERS_KEY, localWorkers as unknown as JsonValue),
       orca.storage.set(
-        STORAGE_DISMISSED_KEY,
-        Array.from(dismissedTaskIds) as unknown as JsonValue
+        STORAGE_HANDLED_KEY,
+        Array.from(handledTaskKeys) as unknown as JsonValue
       )
     ]).catch(() => {})
   }
 
   async function loadStorage(): Promise<void> {
     try {
-      const [pendingRaw, workersRaw, dismissedRaw] = await Promise.all([
+      const [pendingRaw, workersRaw, handledRaw] = await Promise.all([
         orca.storage.get(STORAGE_PENDING_KEY),
         orca.storage.get(STORAGE_WORKERS_KEY),
-        orca.storage.get(STORAGE_DISMISSED_KEY)
+        orca.storage.get(STORAGE_HANDLED_KEY)
       ])
+      handledTaskKeys = new Set(readStoredArray<string>(handledRaw))
       pendingQueue = readStoredArray<PendingTask>(pendingRaw).filter(
-        (item) => typeof item?.spec === 'string' && item.spec.trim().length > 0
+        (item) =>
+          typeof item?.spec === 'string' &&
+          item.spec.trim().length > 0 &&
+          !handledTaskKeys.has(taskInstanceKey(item.taskId, item.createdAt ?? 0))
       )
       localWorkers = readStoredArray<WorkerItem>(workersRaw).map((worker) => ({
         ...worker,
         isDeskOwned: worker.isDeskOwned ?? true,
         isActive: worker.isActive ?? isActiveWorkerStatus(worker.status)
       }))
-      dismissedTaskIds = new Set(readStoredArray<string>(dismissedRaw))
     } catch {
       // Storage errors should not prevent the worker from starting.
     }
@@ -730,10 +748,11 @@ export function createRuntime(orca: OrcaWorkerApi, deps: RuntimeDeps = {}): Cons
       controller = current
 
       try {
-        const [advisorResult, hostSnapshot, queueItems] = await Promise.all([
+        const [advisorResult, hostSnapshot, queueItems, queueAcks] = await Promise.all([
           collect(scriptPath, current.signal),
           fetchProjectsAndWorkspaces(),
-          readQueue(queuePath).catch(() => [] as PendingQueueFileItem[])
+          readQueue(queuePath).catch(() => [] as PendingQueueFileItem[]),
+          readQueueAcks(queuePath).catch(() => [] as PendingQueueAckEntry[])
         ])
         if (
           stopped ||
@@ -750,36 +769,37 @@ export function createRuntime(orca: OrcaWorkerApi, deps: RuntimeDeps = {}): Cons
           localWorkers
         )
 
+        const handledKeySet = new Set(handledTaskKeys)
+        for (const ack of queueAcks) {
+          handledKeySet.add(taskInstanceKey(ack.taskId, ack.createdAt))
+        }
+
         const advisorRec = advisorResult.ok ? advisorResult.payload.recommendation : null
-        const existingById = new Map(pendingQueue.map((item) => [item.taskId, item]))
-        const activeLocalTaskIds = new Set(
-          localWorkers.map((worker) => worker.taskId).filter((id): id is string => Boolean(id))
+        const existingByKey = new Map(
+          pendingQueue.map((item) => [taskInstanceKey(item.taskId, item.createdAt), item])
         )
 
         const queueTasks = queueItems
-          .filter(
-            (item) => !dismissedTaskIds.has(item.taskId) && !activeLocalTaskIds.has(item.taskId)
-          )
+          .filter((item) => !handledKeySet.has(taskInstanceKey(item.taskId, item.createdAt)))
           .map((item) =>
             queueItemToPendingTask(
               item,
               hostSnapshot.projects,
               hostSnapshot.workspaces,
-              existingById.get(item.taskId),
+              existingByKey.get(taskInstanceKey(item.taskId, item.createdAt)),
               advisorRec,
               now()
             )
           )
 
-        const queueIds = new Set(queueTasks.map((item) => item.taskId))
+        const queueKeys = new Set(
+          queueTasks.map((item) => taskInstanceKey(item.taskId, item.createdAt))
+        )
         const manualTasks = pendingQueue
-          .filter(
-            (task) =>
-              task.source !== 'queue' &&
-              !queueIds.has(task.taskId) &&
-              !dismissedTaskIds.has(task.taskId) &&
-              !activeLocalTaskIds.has(task.taskId)
-          )
+          .filter((task) => {
+            const key = taskInstanceKey(task.taskId, task.createdAt)
+            return task.source !== 'queue' && !queueKeys.has(key) && !handledKeySet.has(key)
+          })
           .map((task) =>
             refreshManualTaskBinding(task, hostSnapshot.projects, hostSnapshot.workspaces)
           )
@@ -965,16 +985,15 @@ export function createRuntime(orca: OrcaWorkerApi, deps: RuntimeDeps = {}): Cons
               '--json'
             ]
       } else {
-        const repoSelector = matchedProject?.path
-          ? `path:${matchedProject.path}`
-          : matchedProject?.id
-            ? `id:${matchedProject.id}`
-            : task.projectId
-              ? `id:${task.projectId}`
-              : null
-        if (!repoSelector) {
-          throw withErrorCode(`대상 저장소를 찾을 수 없습니다 (${task.domain}).`, 'invalid_params')
+        if (!matchedProject) {
+          throw withErrorCode(
+            `로컬 호스트에서 대상 저장소를 찾을 수 없습니다 (${task.domain}).`,
+            'invalid_params'
+          )
         }
+        const repoSelector = matchedProject.path
+          ? `path:${matchedProject.path}`
+          : `id:${matchedProject.id}`
 
         cliArgs = useTrack3
           ? [
@@ -1033,8 +1052,13 @@ export function createRuntime(orca: OrcaWorkerApi, deps: RuntimeDeps = {}): Cons
       }
 
       const resolvedWorkspaceId = targetWorkspaceId ?? parseWorkspaceIdFromStdout(res.stdout)
+      const instanceKey = taskInstanceKey(task.taskId, task.createdAt)
+      const handledAt = now()
 
-      pendingQueue = pendingQueue.filter((p) => p.taskId !== task.taskId)
+      pendingQueue = pendingQueue.filter(
+        (p) => taskInstanceKey(p.taskId, p.createdAt) !== instanceKey
+      )
+      handledTaskKeys.add(instanceKey)
       const worker: WorkerItem = {
         id: resolvedWorkspaceId ?? `worker-${task.taskId}`,
         taskId: task.taskId,
@@ -1048,14 +1072,19 @@ export function createRuntime(orca: OrcaWorkerApi, deps: RuntimeDeps = {}): Cons
         status: useTrack3 ? 'handoff' : 'working',
         unread: false,
         terminalCount: 1,
-        lastActivityAt: now(),
+        lastActivityAt: handledAt,
         isDeskOwned: true,
         isActive: true
       }
       localWorkers = [worker, ...localWorkers.filter((w) => w.taskId !== task.taskId)]
       await Promise.all([
         persist(),
-        removeQueueItem(settings.pendingQueuePath, task.taskId).catch(() => {})
+        recordQueueAck(settings.pendingQueuePath, {
+          taskId: task.taskId,
+          createdAt: task.createdAt,
+          action: useTrack3 ? 'handoff' : 'approved',
+          handledAt
+        }).catch(() => {})
       ])
 
       const latestSnapshot = await fetchProjectsAndWorkspaces()
@@ -1091,11 +1120,22 @@ export function createRuntime(orca: OrcaWorkerApi, deps: RuntimeDeps = {}): Cons
     const idx = pendingQueue.findIndex((p) => p.taskId === input.taskId)
     if (idx === -1) throw withErrorCode(`대기 작업 ${input.taskId}를 찾을 수 없습니다.`, 'invalid_params')
 
-    pendingQueue = pendingQueue.filter((p) => p.taskId !== input.taskId)
-    dismissedTaskIds.add(input.taskId)
+    const task = pendingQueue[idx]
+    const instanceKey = taskInstanceKey(task.taskId, task.createdAt)
+    const handledAt = now()
+
+    pendingQueue = pendingQueue.filter(
+      (p) => taskInstanceKey(p.taskId, p.createdAt) !== instanceKey
+    )
+    handledTaskKeys.add(instanceKey)
     await Promise.all([
       persist(),
-      removeQueueItem(settings.pendingQueuePath, input.taskId).catch(() => {})
+      recordQueueAck(settings.pendingQueuePath, {
+        taskId: task.taskId,
+        createdAt: task.createdAt,
+        action: 'cancelled',
+        handledAt
+      }).catch(() => {})
     ])
     state = {
       ...state,

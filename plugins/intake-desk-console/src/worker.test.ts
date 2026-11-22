@@ -229,58 +229,131 @@ test('does not synthesize fake pending tasks from advisor recommendation and fil
   }
 })
 
-test('reads real pending-approvals.json file with explicit spec and removes dispatched item from queue file', async () => {
+test('reads pending-approvals.json read-only, isolates concurrent bot appends via .handled.json ack, and allows reused #T1 with newer createdAt despite historical workers', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'intake-queue-file-'))
   try {
     mkdirSync(dir, { recursive: true })
     const queuePath = join(dir, 'pending-approvals.json')
-    const queueItems: PendingQueueFileItem[] = [
-      {
-        taskId: '#T1',
-        domain: 'TennisClubManagement',
-        projectId: 'proj-tcm',
-        track: 'track2',
-        worktreeMode: 'new',
-        worktreeName: 'desk-tcm-real-queue',
-        title: '대진표 테스트 보강',
-        spec: 'docs와 tests를 확인해 티어 대진표 동시성 회귀 테스트를 추가하라.',
-        agent: 'codex',
-        model: 'gpt-6-astra',
-        effort: 'high',
-        billingType: 'subscription',
-        estimatedCostUsd: 0,
-        estimatedMinutes: 15,
-        reason: 'Codex 주간 9% 여유',
-        oneLine: '추천 #T1',
-        createdAt: 1_795_280_000_000
-      }
-    ]
-    writeFileSync(queuePath, JSON.stringify({ schemaVersion: 1, items: queueItems }, null, 2))
+    const handledPath = join(dir, 'pending-approvals.handled.json')
+    const item1: PendingQueueFileItem = {
+      taskId: '#T1',
+      domain: 'TennisClubManagement',
+      projectId: 'proj-tcm',
+      track: 'track2',
+      worktreeMode: 'new',
+      worktreeName: 'desk-tcm-real-queue',
+      title: '대진표 테스트 보강',
+      spec: 'docs와 tests를 확인해 티어 대진표 동시성 회귀 테스트를 추가하라.',
+      agent: 'codex',
+      model: 'gpt-6-astra',
+      effort: 'high',
+      billingType: 'subscription',
+      estimatedCostUsd: 0,
+      estimatedMinutes: 15,
+      reason: 'Codex 주간 9% 여유',
+      oneLine: '추천 #T1',
+      createdAt: 1_795_280_000_000
+    }
+    const rawInitial = JSON.stringify({ schemaVersion: 1, items: [item1] }, null, 2)
+    writeFileSync(queuePath, rawInitial)
 
-    const fake = fakeOrca({ settings: { pendingQueuePath: queuePath } })
+    // Pre-populate storage with a historical #T1 local worker (like Round 6 live storage)
+    const fake = fakeOrca({
+      settings: { pendingQueuePath: queuePath },
+      storage: {
+        'intake-desk-console.workers': [
+          {
+            id: 'worker-#T1',
+            taskId: '#T1',
+            workspaceId: null,
+            domain: 'TennisClubManagement',
+            projectId: 'proj-tcm',
+            name: 'desk-t1',
+            branch: 'desk-t1',
+            track: 'Track 3',
+            modelLabel: 'codex/gpt-6-astra:high',
+            status: 'handoff',
+            unread: false,
+            terminalCount: 1,
+            lastActivityAt: 1_795_270_000_000,
+            isDeskOwned: true,
+            isActive: true
+          }
+        ]
+      }
+    })
     const commandCalls: Array<{ cmd: string; args: string[] }> = []
+    let releaseCli!: () => void
+    const gate = new Promise<void>((resolve) => {
+      releaseCli = resolve
+    })
+
     const runtime = createRuntime(fake.orca, {
       collectAdvisor: async () => ({ ok: true, payload: liveAdvisorPayload }),
       runCommand: async (cmd, args) => {
         commandCalls.push({ cmd, args })
+        await gate
         return { exitCode: 0, stdout: '{"workspaceId":"ws-new-t1"}', stderr: '' }
       },
-      now: () => 1_795_280_000_000
+      now: () => 1_795_280_001_000
     })
     await runtime.start()
     try {
+      // Historical worker with same #T1 must NOT hide a fresh queued #T1
       const state = await runtime.refresh()
       assert.equal(state.pending.length, 1)
-      assert.equal(state.pending[0]?.spec, queueItems[0]?.spec)
-      assert.equal(fake.statusBar.at(-1)?.text, 'Desk 대기 1 · 워커 2')
+      assert.equal(state.pending[0]?.spec, item1.spec)
+      assert.equal(fake.statusBar.at(-1)?.text, 'Desk 대기 1 · 워커 3')
 
-      await fake.handlers.get('console.approve')!({ taskId: '#T1' })
+      // While approve is in-flight, bot concurrently appends #T2 and a future #T1 (newer createdAt)
+      const approvePromise = fake.handlers.get('console.approve')!({ taskId: '#T1' })
+      const item2: PendingQueueFileItem = {
+        ...item1,
+        taskId: '#T2',
+        worktreeName: 'desk-tcm-concurrent',
+        spec: '동시 추가된 #T2 작업이 덮어쓰기로 유실되지 않아야 한다.',
+        createdAt: 1_795_280_000_500
+      }
+      const rawWithConcurrent = JSON.stringify({ schemaVersion: 1, items: [item1, item2] }, null, 2)
+      writeFileSync(queuePath, rawWithConcurrent)
+      releaseCli()
+      await approvePromise
+
       assert.equal(commandCalls.length, 1)
       assert.ok(commandCalls[0]?.args.includes('path:/repo/tcm'))
-      assert.ok(commandCalls[0]?.args.includes(queueItems[0]!.spec))
+      assert.ok(commandCalls[0]?.args.includes(item1.spec))
 
-      const persistedQueue = JSON.parse(readFileSync(queuePath, 'utf8')) as { items: unknown[] }
-      assert.equal(persistedQueue.items.length, 0)
+      // Plugin NEVER overwrote pending-approvals.json — concurrent #T2 is intact on disk
+      assert.equal(readFileSync(queuePath, 'utf8'), rawWithConcurrent)
+      const handledJson = JSON.parse(readFileSync(handledPath, 'utf8')) as {
+        entries: Array<{ taskId: string; createdAt: number; action: string }>
+      }
+      assert.equal(handledJson.entries.length, 1)
+      assert.equal(handledJson.entries[0]?.taskId, '#T1')
+      assert.equal(handledJson.entries[0]?.createdAt, item1.createdAt)
+      assert.equal(handledJson.entries[0]?.action, 'approved')
+
+      // Refresh hides acked #T1@1_795_280_000_000 and picks up concurrent #T2 immediately
+      const afterConcurrent = await runtime.refresh()
+      assert.deepEqual(
+        afterConcurrent.pending.map((p) => p.taskId),
+        ['#T2']
+      )
+
+      // Later, bot reuses #T1 with a newer createdAt -> must appear cleanly
+      const reusedT1: PendingQueueFileItem = {
+        ...item1,
+        taskId: '#T1',
+        worktreeName: 'desk-tcm-reused',
+        spec: '새 createdAt으로 재발급된 #T1 작업이다.',
+        createdAt: 1_795_290_000_000
+      }
+      writeFileSync(queuePath, JSON.stringify({ schemaVersion: 1, items: [item1, item2, reusedT1] }, null, 2))
+      const afterReuse = await runtime.refresh()
+      assert.deepEqual(
+        afterReuse.pending.map((p) => p.taskId),
+        ['#T2', '#T1']
+      )
     } finally {
       runtime.stop()
     }
@@ -689,6 +762,104 @@ test('dispatches track3 tasks as Track 3 even via console.approve, forwards mode
     assert.equal(runtimeUnmatched.state().pending.length, 1)
   } finally {
     runtimeUnmatched.stop()
+  }
+
+  // 4. Explicit workspaceId pointing to a remote host or wrong project MUST ALSO fail closed
+  const fakeBypass = fakeOrca({
+    workspaces: [
+      {
+        id: 'ws-remote-other',
+        kind: 'worktree',
+        name: 'remote-wt',
+        project: 'ObsidianAutomation',
+        projectId: 'proj-obs',
+        path: '/remote/wt',
+        branch: 'feat/remote',
+        hostId: 'ssh:remote-box',
+        status: { state: 'inactive', unread: false, terminalCount: 0, lastActivityAt: null }
+      },
+      {
+        id: 'ws-obs-local',
+        kind: 'worktree',
+        name: 'obs-local',
+        project: 'ObsidianAutomation',
+        projectId: 'proj-obs',
+        path: '/wt/obs-local',
+        branch: 'feat/obs-local',
+        hostId: 'local',
+        status: { state: 'inactive', unread: false, terminalCount: 0, lastActivityAt: null }
+      }
+    ]
+  })
+  const bypassCalls: Array<{ cmd: string; args: string[] }> = []
+  const bypassRuntime = createRuntime(fakeBypass.orca, {
+    collectAdvisor: async () => ({ ok: true, payload: liveAdvisorPayload }),
+    readPendingQueue: async () => [
+      {
+        taskId: '#T13',
+        domain: 'ObsidianAutomation',
+        projectId: 'proj-obs',
+        workspaceId: 'ws-remote-other',
+        track: 'track2',
+        worktreeMode: 'existing',
+        worktreeName: 'remote-wt',
+        title: '원격 workspaceId 차단 검증',
+        spec: '원격 hostId workspaceId는 로컬 실행 시 거부되어야 한다.',
+        agent: 'codex',
+        model: 'gpt-6-astra',
+        effort: 'high',
+        billingType: 'subscription',
+        estimatedCostUsd: 0,
+        estimatedMinutes: 5,
+        reason: '검증',
+        oneLine: '추천 #T13',
+        createdAt: 1_795_280_000_000
+      },
+      {
+        taskId: '#T14',
+        domain: 'TennisClubManagement',
+        projectId: 'proj-tcm',
+        workspaceId: 'ws-obs-local',
+        track: 'track2',
+        worktreeMode: 'existing',
+        worktreeName: 'obs-local',
+        title: '타 프로젝트 workspaceId 차단 검증',
+        spec: '다른 프로젝트에 속한 workspaceId도 거부되어야 한다.',
+        agent: 'codex',
+        model: 'gpt-6-astra',
+        effort: 'high',
+        billingType: 'subscription',
+        estimatedCostUsd: 0,
+        estimatedMinutes: 5,
+        reason: '검증',
+        oneLine: '추천 #T14',
+        createdAt: 1_795_280_000_100
+      }
+    ],
+    runCommand: async (cmd, args) => {
+      bypassCalls.push({ cmd, args })
+      return { exitCode: 0, stdout: '{}', stderr: '' }
+    },
+    now: () => 1_795_280_000_000
+  })
+  await bypassRuntime.start()
+  try {
+    const state = await bypassRuntime.refresh()
+    assert.equal(state.pending.find((p) => p.taskId === '#T13')?.workspaceId, null)
+    assert.equal(state.pending.find((p) => p.taskId === '#T14')?.workspaceId, null)
+
+    for (const id of ['#T13', '#T14']) {
+      let code: string | undefined
+      try {
+        await fakeBypass.handlers.get('console.approve')!({ taskId: id })
+      } catch (error) {
+        code = (error as { code?: string }).code
+      }
+      assert.equal(code, 'invalid_params')
+    }
+    assert.equal(bypassCalls.length, 0)
+  } finally {
+    bypassRuntime.stop()
   }
 })
 

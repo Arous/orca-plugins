@@ -108,6 +108,13 @@ export type ModelOption = {
   label: string
 }
 
+export type PendingQueueAckEntry = {
+  taskId: string
+  createdAt: number
+  action: 'approved' | 'handoff' | 'cancelled'
+  handledAt: number
+}
+
 export type PendingQueueFileItem = {
   taskId: string
   domain: string
